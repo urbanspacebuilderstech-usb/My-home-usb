@@ -34,6 +34,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
 import { NumericInput } from '../components/NumericInput';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -58,16 +59,17 @@ const maskEmail = (e) => {
   return `${'x'.repeat(Math.max(3, user.length))}@${domain}`;
 };
 
-// MaskedContact: hides phone/email by default, reveals on hover.
+// MaskedContact: hides phone/email by default, reveals on hover (tap on phones).
 // Lost leads stay masked permanently — agents shouldn't ping disqualified leads.
 const MaskedContact = ({ phone, email, lost, testIdPrefix }) => {
   const [revealed, setRevealed] = useState(false);
   const showRaw = revealed && !lost;
   return (
     <div
-      className="space-y-0 cursor-default select-none"
+      className="space-y-0 cursor-default select-none min-w-0"
       onMouseEnter={() => !lost && setRevealed(true)}
       onMouseLeave={() => setRevealed(false)}
+      onClick={() => !lost && setRevealed(true)}
       data-testid={testIdPrefix ? `${testIdPrefix}-wrap` : undefined}
     >
       {phone && (
@@ -117,6 +119,13 @@ const STANDARD_FIELDS = [
   { value: 'source', label: 'Lead Source' },
 ];
 
+// Phones get cards instead of the leads table, built this many at a time
+// (same as Pre-Sales — the list can hold thousands of leads).
+const MOBILE_PAGE_SIZE = 40;
+
+const fmtLeadDate = (iso) => new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const fmtLeadTime = (iso) => new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
 // Stage colors
 const STAGE_COLORS = {
   stg_new_lead: 'bg-amber-500',
@@ -164,7 +173,14 @@ export default function MarketingBoard() {
   const [sortOrder, setSortOrder] = useState('desc'); // newest first by default
   const [leadSources, setLeadSources] = useState([]);
   const [selectedSource, setSelectedSource] = useState('all');
-  
+  // Nov 2 2026 — phones: cards instead of the tables, MOBILE_PAGE_SIZE leads
+  // at a time with a "Show more" button, starting over when filters change.
+  const isMobile = useIsMobile();
+  const [mobileVisible, setMobileVisible] = useState(MOBILE_PAGE_SIZE);
+  useEffect(() => {
+    setMobileVisible(MOBILE_PAGE_SIZE);
+  }, [leadsFilter, selectedSource, searchQuery, sortOrder]);
+
   // Bulk Select & Delete
   const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
   const [bulkDeleteDialog, setBulkDeleteDialog] = useState(false);
@@ -1025,6 +1041,52 @@ export default function MarketingBoard() {
     }).format(amount || 0);
   };
 
+  // Phone cards for the Sales Team tab's two tables (same figures + actions).
+  const renderTeamCards = (members, type) => {
+    const isPre = type === 'pre_sales';
+    return (
+      <div className="space-y-2" data-testid={`team-cards-${type}`}>
+        {(members || []).map(member => {
+          const stats = isPre
+            ? [[member.total_leads, 'Leads', 'text-amber-600'], [member.converted, 'Appt Booked', 'text-green-600'], [`${member.conversion_rate}%`, 'Conversion', 'text-purple-600']]
+            : [[member.total_appointments, 'Appointments', 'text-green-600'], [member.deals_closed, 'Deals Closed', 'text-amber-600'], [`${member.close_rate}%`, 'Close Rate', 'text-purple-600']];
+          return (
+            <div key={member.user_id} className="rounded-lg border bg-gray-50 p-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${isPre ? 'from-amber-400 to-amber-600' : 'from-green-400 to-green-600'} flex items-center justify-center text-white font-bold text-sm shrink-0`}>
+                  {member.name?.charAt(0)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{member.name}</p>
+                  <p className="text-xs text-gray-500 truncate">{member.email}</p>
+                </div>
+                <div className="flex items-center shrink-0">
+                  <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => openPersonView(member, type)} data-testid={`view-${isPre ? 'pre-sales' : 'sales'}-${member.user_id}`}>
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-amber-600 hover:bg-amber-50" title="Transfer role + leads to another user" onClick={() => openTransferDialog(member, type)} data-testid={`transfer-${isPre ? 'pre-sales' : 'sales'}-${member.user_id}`}>
+                    <ArrowRightLeft className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {stats.map(([value, label, color]) => (
+                  <div key={label} className="text-center bg-white rounded p-1.5">
+                    <p className={`text-base font-bold ${color}`}>{value}</p>
+                    <p className="text-[10px] text-gray-500">{label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {(!members || members.length === 0) && (
+          <p className="text-center text-sm text-gray-500 py-6">No team members yet</p>
+        )}
+      </div>
+    );
+  };
+
   if (loading && !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -1038,19 +1100,19 @@ export default function MarketingBoard() {
       {/* Header */}
       <AppHeader user={user} />
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
         {/* Distribution Engine Settings */}
-        <Card className="mb-6 border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Settings className="h-6 w-6 text-indigo-600" />
-                <div>
+        <Card className="mb-4 sm:mb-6 border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50">
+          <CardHeader className="p-4 sm:p-6 sm:pb-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <Settings className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-600 shrink-0" />
+                <div className="min-w-0">
                   <CardTitle>Lead Distribution Engine</CardTitle>
-                  <CardDescription>Auto-assign leads to team members using round-robin</CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Auto-assign leads to team members using round-robin</CardDescription>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                 <Label htmlFor="distribution-toggle" className="text-sm font-medium">
                   {settings?.enabled ? 'Enabled' : 'Disabled'}
                 </Label>
@@ -1065,57 +1127,61 @@ export default function MarketingBoard() {
         </Card>
 
         {/* Stats Overview */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
           <Card className="bg-gradient-to-br from-gray-700 to-gray-800 text-white">
-            <CardContent className="p-4">
-              <p className="text-blue-100 text-sm">Total Pre-Sales Leads</p>
-              <p className="text-3xl font-bold">{dashboard?.total_pre_sales_leads || 0}</p>
+            <CardContent className="p-3 sm:p-4">
+              <p className="text-blue-100 text-xs sm:text-sm">Total Pre-Sales Leads</p>
+              <p className="text-2xl sm:text-3xl font-bold">{dashboard?.total_pre_sales_leads || 0}</p>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
-            <CardContent className="p-4">
-              <p className="text-green-100 text-sm">Total Sales Appointments</p>
-              <p className="text-3xl font-bold">{dashboard?.total_sales_leads || 0}</p>
+            <CardContent className="p-3 sm:p-4">
+              <p className="text-green-100 text-xs sm:text-sm">Total Sales Appointments</p>
+              <p className="text-2xl sm:text-3xl font-bold">{dashboard?.total_sales_leads || 0}</p>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
-            <CardContent className="p-4">
-              <p className="text-purple-100 text-sm">Pre-Sales Team</p>
-              <p className="text-3xl font-bold">{dashboard?.pre_sales_team?.length || 0}</p>
+            <CardContent className="p-3 sm:p-4">
+              <p className="text-purple-100 text-xs sm:text-sm">Pre-Sales Team</p>
+              <p className="text-2xl sm:text-3xl font-bold">{dashboard?.pre_sales_team?.length || 0}</p>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
-            <CardContent className="p-4">
-              <p className="text-orange-100 text-sm">Sales Team</p>
-              <p className="text-3xl font-bold">{dashboard?.sales_team?.length || 0}</p>
+            <CardContent className="p-3 sm:p-4">
+              <p className="text-orange-100 text-xs sm:text-sm">Sales Team</p>
+              <p className="text-2xl sm:text-3xl font-bold">{dashboard?.sales_team?.length || 0}</p>
             </CardContent>
           </Card>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="bg-white border">
-            <TabsTrigger value="overview" className="data-[state=active]:bg-indigo-100">
-              <BarChart3 className="h-4 w-4 mr-2" /> Overview
+          {/* Phones: all five tabs wrap onto two rows instead of a sideways
+              scroll that hid the first ones off the left edge. */}
+          <TabsList className="bg-white border flex flex-wrap h-auto w-full gap-1 sm:inline-flex sm:flex-nowrap sm:w-auto sm:h-10" data-testid="marketing-tabs">
+            <TabsTrigger value="overview" className="data-[state=active]:bg-indigo-100 flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-3">
+              <BarChart3 className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2 shrink-0" /> Overview
             </TabsTrigger>
-            <TabsTrigger value="team" className="data-[state=active]:bg-indigo-100">
-              <Users className="h-4 w-4 mr-2" /> Sales Team
+            <TabsTrigger value="team" className="data-[state=active]:bg-indigo-100 flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-3">
+              <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2 shrink-0" /> Sales Team
             </TabsTrigger>
-            <TabsTrigger value="leads" className="data-[state=active]:bg-indigo-100">
-              <Layers className="h-4 w-4 mr-2" /> All Leads
+            <TabsTrigger value="leads" className="data-[state=active]:bg-indigo-100 flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-3">
+              <Layers className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2 shrink-0" /> All Leads
             </TabsTrigger>
-            <TabsTrigger value="sources" className="data-[state=active]:bg-indigo-100">
-              <TrendingUp className="h-4 w-4 mr-2" /> Lead Sources
+            <TabsTrigger value="sources" className="data-[state=active]:bg-indigo-100 flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-3">
+              <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2 shrink-0" /> Lead Sources
             </TabsTrigger>
-            <TabsTrigger value="google_sheets" className="data-[state=active]:bg-emerald-100" data-testid="google-sheets-tab">
-              <FileSpreadsheet className="h-4 w-4 mr-2" /> Google Sheets
+            <TabsTrigger value="google_sheets" className="data-[state=active]:bg-emerald-100 flex-1 sm:flex-none text-xs sm:text-sm px-2 sm:px-3" data-testid="google-sheets-tab">
+              <FileSpreadsheet className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2 shrink-0" /> Google Sheets
             </TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
           <TabsContent value="overview">
-            <div className="grid md:grid-cols-2 gap-6">
+            {/* min-w-0 on the cards: a long email otherwise widens the grid
+                cell past the screen on phones. */}
+            <div className="grid md:grid-cols-2 gap-4 sm:gap-6">
               {/* Pre-Sales Team Summary */}
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-amber-700">
                     <Users className="h-5 w-5" /> Pre-Sales Team
@@ -1127,20 +1193,20 @@ export default function MarketingBoard() {
                     {dashboard?.pre_sales_team?.map((member, idx) => (
                       <div 
                         key={member.user_id} 
-                        className="bg-gray-50 rounded-lg p-4 border hover:shadow-md transition-shadow cursor-pointer"
+                        className="bg-gray-50 rounded-lg p-3 sm:p-4 border hover:shadow-md transition-shadow cursor-pointer"
                         onClick={() => openPersonView(member, 'pre_sales')}
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold shrink-0">
                               {member.name?.charAt(0) || 'U'}
                             </div>
-                            <div>
-                              <p className="font-semibold">{member.name || 'Unknown'}</p>
-                              <p className="text-xs text-gray-500">{member.email}</p>
+                            <div className="min-w-0">
+                              <p className="font-semibold truncate">{member.name || 'Unknown'}</p>
+                              <p className="text-xs text-gray-500 truncate">{member.email}</p>
                             </div>
                           </div>
-                          <ChevronRight className="h-5 w-5 text-gray-400" />
+                          <ChevronRight className="h-5 w-5 text-gray-400 shrink-0" />
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-3">
                           <div className="text-center bg-white rounded p-2">
@@ -1166,7 +1232,7 @@ export default function MarketingBoard() {
               </Card>
 
               {/* Sales Team Summary */}
-              <Card>
+              <Card className="min-w-0">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-green-700">
                     <Target className="h-5 w-5" /> Sales Team (Post-Sales)
@@ -1178,20 +1244,20 @@ export default function MarketingBoard() {
                     {dashboard?.sales_team?.map((member, idx) => (
                       <div 
                         key={member.user_id} 
-                        className="bg-gray-50 rounded-lg p-4 border hover:shadow-md transition-shadow cursor-pointer"
+                        className="bg-gray-50 rounded-lg p-3 sm:p-4 border hover:shadow-md transition-shadow cursor-pointer"
                         onClick={() => openPersonView(member, 'sales')}
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold shrink-0">
                               {member.name?.charAt(0) || 'U'}
                             </div>
-                            <div>
-                              <p className="font-semibold">{member.name || 'Unknown'}</p>
-                              <p className="text-xs text-gray-500">{member.email}</p>
+                            <div className="min-w-0">
+                              <p className="font-semibold truncate">{member.name || 'Unknown'}</p>
+                              <p className="text-xs text-gray-500 truncate">{member.email}</p>
                             </div>
                           </div>
-                          <ChevronRight className="h-5 w-5 text-gray-400" />
+                          <ChevronRight className="h-5 w-5 text-gray-400 shrink-0" />
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-3">
                           <div className="text-center bg-white rounded p-2">
@@ -1227,17 +1293,17 @@ export default function MarketingBoard() {
               <CardContent>
                 <div className="space-y-2">
                   {dashboard?.recent_leads?.slice(0, 10).map(lead => (
-                    <div key={lead.lead_id} className="flex items-center justify-between py-2 border-b last:border-0">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${lead.stage_type === 'pre_sales' ? 'bg-amber-500' : 'bg-green-500'}`}></div>
-                        <span className="font-medium">{lead.name}</span>
-                        <Badge className={SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}>
+                    <div key={lead.lead_id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3 py-2 border-b last:border-0">
+                      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${lead.stage_type === 'pre_sales' ? 'bg-amber-500' : 'bg-green-500'}`}></div>
+                        <span className="font-medium truncate">{lead.name}</span>
+                        <Badge className={`shrink-0 ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
                           {lead.source?.replace('_', ' ')}
                         </Badge>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-gray-500">{lead.assigned_to_name || 'Unassigned'}</span>
-                        <span className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5 pl-4 sm:pl-0 sm:shrink-0">
+                        <span className="text-xs sm:text-sm text-gray-500">{lead.assigned_to_name || 'Unassigned'}</span>
+                        <span className="text-xs text-gray-400">{fmtLeadDate(lead.created_at)} {fmtLeadTime(lead.created_at)}</span>
                       </div>
                     </div>
                   ))}
@@ -1251,9 +1317,9 @@ export default function MarketingBoard() {
             <div className="space-y-6">
               {/* Pre-Sales Team List */}
               <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
+                <CardHeader className="p-4 sm:p-6">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="min-w-0">
                       <CardTitle className="flex items-center gap-2 text-amber-700">
                         <Users className="h-5 w-5" /> Pre-Sales Team
                       </CardTitle>
@@ -1264,7 +1330,8 @@ export default function MarketingBoard() {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  {isMobile ? renderTeamCards(dashboard?.pre_sales_team, 'pre_sales') : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 border-b">
@@ -1317,14 +1384,15 @@ export default function MarketingBoard() {
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </CardContent>
               </Card>
 
               {/* Sales Team List */}
               <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
+                <CardHeader className="p-4 sm:p-6">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="min-w-0">
                       <CardTitle className="flex items-center gap-2 text-green-700">
                         <Target className="h-5 w-5" /> Sales Team (Post-Sales)
                       </CardTitle>
@@ -1335,7 +1403,8 @@ export default function MarketingBoard() {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  {isMobile ? renderTeamCards(dashboard?.sales_team, 'sales') : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 border-b">
@@ -1388,6 +1457,7 @@ export default function MarketingBoard() {
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -1396,26 +1466,26 @@ export default function MarketingBoard() {
           {/* All Leads Tab */}
           <TabsContent value="leads">
             <Card>
-              <CardHeader>
-                <div className="flex flex-wrap items-center justify-between gap-4">
+              <CardHeader className="p-4 sm:p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
                   <CardTitle>All Leads</CardTitle>
-                  <div className="flex flex-wrap gap-3">
-                    <Button onClick={() => setShowAddLead(true)} className="bg-green-600 hover:bg-green-700" data-testid="add-new-lead-btn">
+                  <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
+                    <Button onClick={() => setShowAddLead(true)} className="bg-green-600 hover:bg-green-700 w-full sm:w-auto" data-testid="add-new-lead-btn">
                       <Plus className="h-4 w-4 mr-2" /> Add New Lead
                     </Button>
-                    <div className="relative">
+                    <div className="relative w-full sm:w-auto">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                       <Input
                         placeholder="Search leads..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10 w-[200px]"
+                        className="pl-10 w-full sm:w-[200px]"
                       />
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9 gap-1.5 text-xs"
+                      className="h-9 gap-1.5 text-xs shrink-0"
                       onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
                       title={sortOrder === 'desc' ? 'Newest first — click for oldest first' : 'Oldest first — click for newest first'}
                       data-testid="sort-order-toggle"
@@ -1424,7 +1494,7 @@ export default function MarketingBoard() {
                       {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
                     </Button>
                     <Select value={leadsFilter.stage_type} onValueChange={(v) => setLeadsFilter(p => ({ ...p, stage_type: v }))}>
-                      <SelectTrigger className="w-[140px]">
+                      <SelectTrigger className="flex-1 min-w-[110px] sm:flex-none sm:w-[140px]">
                         <SelectValue placeholder="All Types" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1434,7 +1504,7 @@ export default function MarketingBoard() {
                       </SelectContent>
                     </Select>
                     <Select value={leadsFilter.assigned_to} onValueChange={(v) => setLeadsFilter(p => ({ ...p, assigned_to: v }))}>
-                      <SelectTrigger className="w-[160px]">
+                      <SelectTrigger className="w-full sm:w-[160px]">
                         <SelectValue placeholder="All Assignees" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1450,13 +1520,13 @@ export default function MarketingBoard() {
                   </div>
                 </div>
                 
-                {/* Source Filter Tabs */}
-                <div className="flex flex-wrap gap-2 mt-4 border-b pb-3">
-                  <Button 
-                    variant={selectedSource === 'all' ? 'default' : 'outline'} 
+                {/* Source Filter Tabs — one sideways-scrolling strip on phones. */}
+                <div className="flex sm:flex-wrap gap-2 mt-4 border-b pb-3 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
+                  <Button
+                    variant={selectedSource === 'all' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setSelectedSource('all')}
-                    className={selectedSource === 'all' ? 'bg-indigo-600' : ''}
+                    className={`shrink-0 ${selectedSource === 'all' ? 'bg-indigo-600' : ''}`}
                   >
                     All Sources
                     <Badge className="ml-2 bg-white/20 text-inherit">{allLeads.length}</Badge>
@@ -1467,7 +1537,7 @@ export default function MarketingBoard() {
                       variant={selectedSource === source.id ? 'default' : 'outline'}
                       size="sm"
                       onClick={() => setSelectedSource(source.id)}
-                      className={selectedSource === source.id ? 'bg-indigo-600' : ''}
+                      className={`shrink-0 ${selectedSource === source.id ? 'bg-indigo-600' : ''}`}
                     >
                       {source.display || source.id}
                       <Badge className="ml-2 bg-white/20 text-inherit">{source.count}</Badge>
@@ -1476,6 +1546,118 @@ export default function MarketingBoard() {
                 </div>
               </CardHeader>
               <CardContent className="p-0 sm:p-6">
+                {isMobile ? (
+                  /* Phone card list — the 9-column table squeezed every column
+                     to a few pixels. Same select / assign / view / edit /
+                     delete as the table rows. */
+                  <div data-testid="marketing-leads-mobile-list">
+                    <div className={`flex items-center gap-2 px-3 py-2 border-b text-xs ${selectedLeadIds.size > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                      <label className="flex items-center gap-2 min-w-0 text-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={selectedLeadIds.size > 0 && selectedLeadIds.size === filteredLeads.length}
+                          onChange={toggleSelectAll}
+                          className="rounded border-gray-300 h-4 w-4"
+                          data-testid="select-all-leads-mobile"
+                        />
+                        <span className="truncate">
+                          {selectedLeadIds.size > 0 ? `${selectedLeadIds.size} selected` : `Select all (${filteredLeads.length})`}
+                        </span>
+                      </label>
+                      {selectedLeadIds.size > 0 && (
+                        <div className="ml-auto flex items-center gap-1 shrink-0">
+                          <Button size="sm" variant="ghost" className="h-8 text-xs px-2" onClick={() => setSelectedLeadIds(new Set())}>
+                            Clear
+                          </Button>
+                          <Button size="sm" variant="destructive" className="h-8 text-xs px-2" onClick={() => { setBulkDeleteConfirm(''); setBulkDeleteDialog(true); }} data-testid="bulk-delete-btn-mobile">
+                            Delete Selected
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="divide-y">
+                      {filteredLeads.slice(0, mobileVisible).map(lead => (
+                        <div
+                          key={lead.lead_id}
+                          className={`px-3 py-3 ${selectedLeadIds.has(lead.lead_id) ? 'bg-red-50' : ''}`}
+                          data-testid={`marketing-lead-card-${lead.lead_id}`}
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={selectedLeadIds.has(lead.lead_id)}
+                              onChange={() => toggleSelectLead(lead.lead_id)}
+                              className="rounded border-gray-300 h-4 w-4 mt-2.5 shrink-0"
+                              data-testid={`select-lead-${lead.lead_id}`}
+                            />
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
+                              {lead.name?.charAt(0)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-sm truncate">{lead.name}</p>
+                              <p className="text-[11px] text-gray-500 tabular-nums">
+                                {fmtLeadDate(lead.created_at)} <span className="text-gray-400">{fmtLeadTime(lead.created_at)}</span>
+                              </p>
+                              <div className="mt-1">
+                                <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} testIdPrefix={`marketing-card-contact-${lead.lead_id}`} />
+                              </div>
+                            </div>
+                            <div className="flex items-center shrink-0 -mr-1">
+                              <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => openLeadDetail(lead)} title="View">
+                                <Eye className="h-4 w-4 text-amber-600" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => openEditLead(lead)} title="Edit">
+                                <Edit2 className="h-4 w-4 text-amber-600" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => openDeleteLead(lead)} title="Delete">
+                                <Trash2 className="h-4 w-4 text-red-600" />
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="flex items-center flex-wrap gap-1.5 mt-2 pl-[30px]">
+                            <Badge className={`text-[10px] px-1.5 ${lead.stage_type === 'pre_sales' ? 'bg-amber-50 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                              {lead.stage_type === 'pre_sales' ? 'Pre-Sales' : 'Sales'}
+                            </Badge>
+                            <Badge className={`text-[10px] px-1.5 max-w-[120px] truncate ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
+                              {lead.source_display || lead.source}
+                            </Badge>
+                            <Badge variant="outline" className="text-[10px] px-1.5 capitalize">
+                              {lead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}
+                            </Badge>
+                            <Select
+                              value={lead.assigned_to || 'unassigned'}
+                              onValueChange={(v) => v !== 'unassigned' && handleAssignLead(lead.lead_id, v)}
+                            >
+                              <SelectTrigger className="h-8 text-xs w-auto min-w-[120px] max-w-[170px] ml-auto" data-testid={`assign-lead-mobile-${lead.lead_id}`}>
+                                <SelectValue>
+                                  <span className="truncate">{lead.assigned_to_name || 'Unassigned'}</span>
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(lead.stage_type === 'pre_sales' ? dashboard?.pre_sales_team : dashboard?.sales_team)?.map(m => (
+                                  <SelectItem key={m.user_id} value={m.user_id}>{m.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {filteredLeads.length === 0 && (
+                      <p className="px-4 py-10 text-center text-sm text-gray-500">No leads found</p>
+                    )}
+                    {filteredLeads.length > mobileVisible && (
+                      <button
+                        type="button"
+                        onClick={() => setMobileVisible(v => v + MOBILE_PAGE_SIZE)}
+                        className="w-full py-3 text-sm font-medium text-indigo-600 border-t active:bg-indigo-50"
+                        data-testid="marketing-leads-show-more"
+                      >
+                        Show {Math.min(MOBILE_PAGE_SIZE, filteredLeads.length - mobileVisible)} more · {filteredLeads.length - mobileVisible} left
+                      </button>
+                    )}
+                  </div>
+                ) : (
                 <div className="w-full">
                   <table className="w-full text-sm table-fixed">
                     <thead className="bg-gray-50 border-b">
@@ -1604,6 +1786,7 @@ export default function MarketingBoard() {
                     </tbody>
                   </table>
                 </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -1611,13 +1794,13 @@ export default function MarketingBoard() {
           {/* Lead Sources Tab */}
           <TabsContent value="sources">
             <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
+              <CardHeader className="p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="min-w-0">
                     <CardTitle>Lead Sources Breakdown</CardTitle>
                     <CardDescription>Where your leads are coming from</CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button 
                       variant="outline" 
                       size="sm" 
@@ -1639,12 +1822,12 @@ export default function MarketingBoard() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
                   {dashboard?.leads_by_source?.map(source => (
-                    <div key={source._id} className="bg-gray-50 rounded-lg p-4 border text-center hover:shadow-md transition-shadow">
-                      <p className="text-3xl font-bold text-indigo-600">{source.count}</p>
-                      <p className="text-sm text-gray-600 capitalize mt-1">{source._id?.replace('_', ' ') || 'Unknown'}</p>
+                    <div key={source._id} className="bg-gray-50 rounded-lg p-3 sm:p-4 border text-center hover:shadow-md transition-shadow min-w-0">
+                      <p className="text-2xl sm:text-3xl font-bold text-indigo-600">{source.count}</p>
+                      <p className="text-sm text-gray-600 capitalize mt-1 break-words">{source._id?.replace('_', ' ') || 'Unknown'}</p>
                       <Badge className={`mt-2 ${SOURCE_COLORS[source._id] || SOURCE_COLORS.other}`}>
                         {((source.count / dashboard.total_pre_sales_leads) * 100).toFixed(1)}%
                       </Badge>
@@ -1657,20 +1840,21 @@ export default function MarketingBoard() {
 
           {/* Google Sheets Tab */}
           <TabsContent value="google_sheets">
-            <div className="space-y-6">
-              {/* Connection Status */}
+            <div className="space-y-4 sm:space-y-6">
+              {/* Connection Status — the buttons drop under the title on phones
+                  (they ran off the right edge beside it). */}
               <Card className="border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <FileSpreadsheet className="h-6 w-6 text-emerald-600" />
-                      <div>
+                <CardHeader className="p-4 sm:p-6 sm:pb-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileSpreadsheet className="h-6 w-6 text-emerald-600 shrink-0" />
+                      <div className="min-w-0">
                         <CardTitle>Google Sheets Integration</CardTitle>
                         <CardDescription>Paste a sheet URL → each tab becomes a lead source</CardDescription>
                       </div>
                     </div>
                     {sheetsConfig?.is_connected ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge className="bg-emerald-100 text-emerald-700 gap-1"><Check className="h-3 w-3" /> Connected</Badge>
                         <Button variant="outline" size="sm" onClick={openCredentialsDialog} className="gap-1.5" data-testid="sheets-settings-btn">
                           <Settings className="h-3.5 w-3.5" /> Settings
@@ -1680,7 +1864,7 @@ export default function MarketingBoard() {
                         </Button>
                       </div>
                     ) : (sheetsConfig?.needs_reconnect || connectedSheets.length > 0) ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge className="bg-rose-100 text-rose-700 gap-1"><AlertCircle className="h-3 w-3" /> Reconnect Required</Badge>
                         <Button variant="outline" size="sm" onClick={openCredentialsDialog} className="gap-1.5" data-testid="sheets-settings-btn">
                           <Settings className="h-3.5 w-3.5" /> Settings
@@ -1690,7 +1874,7 @@ export default function MarketingBoard() {
                         </Button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button variant="outline" size="sm" onClick={openCredentialsDialog} className="gap-1.5" data-testid="sheets-settings-btn">
                           <Settings className="h-3.5 w-3.5" /> Settings
                         </Button>
@@ -1719,15 +1903,15 @@ export default function MarketingBoard() {
                   {/* STEP 1: Paste URL */}
                   {zapStep === 'url' && (
                     <Card>
-                      <CardHeader>
+                      <CardHeader className="p-4 sm:p-6">
                         <CardTitle className="text-base flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">1</span>
+                          <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold shrink-0">1</span>
                           Paste Google Sheet URL
                         </CardTitle>
                         <CardDescription>Each tab in the sheet will become a separate lead source in your CRM</CardDescription>
                       </CardHeader>
-                      <CardContent>
-                        <div className="flex gap-3">
+                      <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+                        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                           <Input
                             placeholder="https://docs.google.com/spreadsheets/d/..."
                             value={zapSheetUrl}
@@ -1749,12 +1933,12 @@ export default function MarketingBoard() {
                     <div className="space-y-4">
                       <Card className="bg-gray-50">
                         <CardContent className="p-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-semibold text-lg">{zapPreview.spreadsheet_name}</p>
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-lg break-words">{zapPreview.spreadsheet_name}</p>
                               <p className="text-sm text-gray-500">{zapPreview.total_tabs} tab(s) found — each tab = lead source</p>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2">
                               <Button variant="outline" size="sm" onClick={() => { setZapStep('url'); setZapPreview(null); }}>
                                 <ArrowRight className="h-3.5 w-3.5 rotate-180 mr-1" /> Back
                               </Button>
@@ -1769,26 +1953,28 @@ export default function MarketingBoard() {
 
                       {zapPreview.tabs.map((tab) => (
                         <Card key={tab.tab_name} className={tab.is_empty ? 'opacity-50' : ''}>
-                          <CardHeader className="pb-2">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <FileSpreadsheet className="h-5 w-5 text-emerald-500" />
-                                <div>
-                                  <CardTitle className="text-sm">{tab.tab_name}</CardTitle>
+                          <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <FileSpreadsheet className="h-5 w-5 text-emerald-500 shrink-0" />
+                                <div className="min-w-0">
+                                  <CardTitle className="text-sm break-words">{tab.tab_name}</CardTitle>
                                   <CardDescription className="text-xs">
                                     {tab.is_empty ? 'Empty tab — will be skipped' : `${tab.total_rows} rows → Source: "${tab.source_name}"`}
                                   </CardDescription>
                                 </div>
                               </div>
                               {!tab.is_empty && (
-                                <Badge className="bg-emerald-50 text-emerald-700">{tab.total_rows} leads</Badge>
+                                <Badge className="bg-emerald-50 text-emerald-700 shrink-0">{tab.total_rows} leads</Badge>
                               )}
                             </div>
                           </CardHeader>
                           {!tab.is_empty && (
-                            <CardContent className="pt-0">
-                              <div className="border rounded-lg overflow-hidden">
-                                <table className="w-full text-sm">
+                            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                              {/* Scrolls sideways on phones; overflow-hidden cut
+                                  off the Maps To / Action columns there. */}
+                              <div className="border rounded-lg overflow-x-auto">
+                                <table className="w-full text-sm min-w-[560px] md:min-w-0">
                                   <thead className="bg-gray-50">
                                     <tr>
                                       <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 w-1/4">Sheet Column</th>
@@ -1866,7 +2052,7 @@ export default function MarketingBoard() {
 
                       {/* Bottom Import Button */}
                       <div className="flex justify-end">
-                        <Button onClick={zapImportAll} disabled={zapLoading} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" size="lg">
+                        <Button onClick={zapImportAll} disabled={zapLoading} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5 w-full sm:w-auto" size="lg">
                           {zapLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                           {zapLoading ? 'Importing...' : `Import All ${zapPreview.tabs.filter(t => !t.is_empty).length} Tabs`}
                         </Button>
@@ -1883,18 +2069,18 @@ export default function MarketingBoard() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        <div className="grid grid-cols-3 gap-4">
-                          <div className="bg-emerald-50 rounded-lg p-4 text-center">
-                            <p className="text-3xl font-bold text-emerald-700">{zapImportResult.imported}</p>
-                            <p className="text-sm text-emerald-600">Leads Imported</p>
+                        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                          <div className="bg-emerald-50 rounded-lg p-2 sm:p-4 text-center">
+                            <p className="text-2xl sm:text-3xl font-bold text-emerald-700">{zapImportResult.imported}</p>
+                            <p className="text-xs sm:text-sm text-emerald-600">Leads Imported</p>
                           </div>
-                          <div className="bg-amber-50 rounded-lg p-4 text-center">
-                            <p className="text-3xl font-bold text-amber-700">{zapImportResult.skipped}</p>
-                            <p className="text-sm text-amber-600">Duplicates Skipped</p>
+                          <div className="bg-amber-50 rounded-lg p-2 sm:p-4 text-center">
+                            <p className="text-2xl sm:text-3xl font-bold text-amber-700">{zapImportResult.skipped}</p>
+                            <p className="text-xs sm:text-sm text-amber-600">Duplicates Skipped</p>
                           </div>
-                          <div className="bg-blue-50 rounded-lg p-4 text-center">
-                            <p className="text-3xl font-bold text-blue-700">{zapImportResult.sources?.length || 0}</p>
-                            <p className="text-sm text-blue-600">Sources Created</p>
+                          <div className="bg-blue-50 rounded-lg p-2 sm:p-4 text-center">
+                            <p className="text-2xl sm:text-3xl font-bold text-blue-700">{zapImportResult.sources?.length || 0}</p>
+                            <p className="text-xs sm:text-sm text-blue-600">Sources Created</p>
                           </div>
                         </div>
 
@@ -1902,13 +2088,13 @@ export default function MarketingBoard() {
                           <div className="space-y-2">
                             <p className="text-sm font-medium text-gray-700">Source Breakdown:</p>
                             {zapImportResult.sources.map((src, i) => (
-                              <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg p-3 border">
-                                <div className="flex items-center gap-2">
-                                  <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
-                                  <span className="font-medium">{src.tab}</span>
-                                  <span className="text-xs text-gray-400">→ {src.source}</span>
+                              <div key={i} className="flex flex-wrap items-center justify-between gap-2 bg-gray-50 rounded-lg p-3 border">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+                                  <FileSpreadsheet className="h-4 w-4 text-emerald-500 shrink-0" />
+                                  <span className="font-medium break-words">{src.tab}</span>
+                                  <span className="text-xs text-gray-400 break-words">→ {src.source}</span>
                                 </div>
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-2">
                                   <Badge className="bg-emerald-100 text-emerald-700">{src.imported} imported</Badge>
                                   {src.skipped > 0 && <Badge className="bg-amber-100 text-amber-700">{src.skipped} skipped</Badge>}
                                 </div>
@@ -1938,32 +2124,41 @@ export default function MarketingBoard() {
                   {/* Export & Auto-Sync section */}
                   {connectedSheets.length > 0 && (
                     <Card>
-                      <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                          <div>
+                      <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
                             <CardTitle className="text-base flex items-center gap-2">
-                              <FileSpreadsheet className="h-5 w-5 text-emerald-500" /> Connected Sheets
+                              <FileSpreadsheet className="h-5 w-5 text-emerald-500 shrink-0" /> Connected Sheets
                             </CardTitle>
                             <CardDescription>New rows added to these sheets are auto-synced as leads</CardDescription>
                           </div>
-                          <Button onClick={syncConnectedSheets} disabled={syncingSheet} variant="outline" size="sm" className="gap-1.5" data-testid="sync-now-btn">
+                          <Button onClick={syncConnectedSheets} disabled={syncingSheet} variant="outline" size="sm" className="gap-1.5 shrink-0" data-testid="sync-now-btn">
                             <RefreshCw className={`h-3.5 w-3.5 ${syncingSheet ? 'animate-spin' : ''}`} />
                             {syncingSheet ? 'Syncing...' : 'Sync Now'}
                           </Button>
                         </div>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
                         <div className="space-y-3">
                           {connectedSheets.map((sheet, idx) => (
                             <div key={idx} className="bg-gray-50 rounded-lg p-3 border">
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
-                                  <span className="font-medium text-sm">{sheet.spreadsheet_name || 'Sheet'}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
+                              <div className="flex items-start sm:items-center justify-between gap-2 mb-2">
+                                {/* Phones: Last sync drops under the name so the
+                                    name isn't cut down to a couple of words. */}
+                                <div className="min-w-0">
+                                  <span className="flex items-center gap-2 min-w-0">
+                                    <FileSpreadsheet className="h-4 w-4 text-emerald-500 shrink-0" />
+                                    <span className="font-medium text-sm truncate">{sheet.spreadsheet_name || 'Sheet'}</span>
+                                  </span>
                                   {sheet.last_synced && (
-                                    <span className="text-xs text-gray-400">
+                                    <span className="sm:hidden block text-xs text-gray-400 pl-6 mt-0.5">
+                                      Last sync: {fmtLeadTime(sheet.last_synced)} {new Date(sheet.last_synced).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit' })}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {sheet.last_synced && (
+                                    <span className="hidden sm:inline text-xs text-gray-400">
                                       Last sync: {new Date(sheet.last_synced).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                                       {' '}{new Date(sheet.last_synced).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit' })}
                                     </span>
@@ -2001,8 +2196,8 @@ export default function MarketingBoard() {
                       </CardContent>
                     </Card>
                     <Card className="border-purple-100">
-                      <CardContent className="p-5 flex items-center justify-between">
-                        <div className="flex items-center gap-4">
+                      <CardContent className="p-5 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-4 min-w-0">
                           <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center shrink-0">
                             <RefreshCw className="h-5 w-5 text-purple-600" />
                           </div>
@@ -2029,52 +2224,54 @@ export default function MarketingBoard() {
         </Tabs>
       </main>
 
+      {/* Every popup on this page is a card with a margin on phones
+          (w-[calc(100%-1.5rem)] rounded-xl), never edge to edge. */}
       {/* Individual Person View Dialog */}
       <Dialog open={!!selectedPerson} onOpenChange={(open) => !open && setSelectedPerson(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold ${selectedPerson?.type === 'pre_sales' ? 'bg-gradient-to-br from-amber-400 to-amber-600' : 'bg-gradient-to-br from-green-400 to-green-600'}`}>
+            <DialogTitle className="flex items-center gap-3 text-left pr-6">
+              <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white font-bold shrink-0 ${selectedPerson?.type === 'pre_sales' ? 'bg-gradient-to-br from-amber-400 to-amber-600' : 'bg-gradient-to-br from-green-400 to-green-600'}`}>
                 {selectedPerson?.name?.charAt(0)}
               </div>
-              <div>
-                <p className="text-xl">{selectedPerson?.name}</p>
-                <p className="text-sm text-gray-500 font-normal">{selectedPerson?.email}</p>
+              <div className="min-w-0">
+                <p className="text-lg sm:text-xl truncate">{selectedPerson?.name}</p>
+                <p className="text-sm text-gray-500 font-normal truncate">{selectedPerson?.email}</p>
               </div>
             </DialogTitle>
           </DialogHeader>
-          
+
           {selectedPerson && (
-            <div className="space-y-6 mt-4">
+            <div className="space-y-4 sm:space-y-6 mt-2 sm:mt-4">
               {/* Summary Stats */}
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
                 <Card className="bg-amber-50 border-blue-200">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-3xl font-bold text-amber-700">
+                  <CardContent className="p-3 sm:p-4 text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-amber-700">
                       {selectedPerson.type === 'pre_sales' ? selectedPerson.total_leads : selectedPerson.total_appointments}
                     </p>
                     <p className="text-xs text-amber-600">Total {selectedPerson.type === 'pre_sales' ? 'Leads' : 'Appointments'}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-green-50 border-green-200">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-3xl font-bold text-green-700">
+                  <CardContent className="p-3 sm:p-4 text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-green-700">
                       {selectedPerson.type === 'pre_sales' ? selectedPerson.converted : selectedPerson.deals_closed}
                     </p>
                     <p className="text-xs text-green-600">{selectedPerson.type === 'pre_sales' ? 'Appt Booked' : 'Deals Closed'}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-purple-50 border-purple-200">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-3xl font-bold text-purple-700">
+                  <CardContent className="p-3 sm:p-4 text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-purple-700">
                       {selectedPerson.type === 'pre_sales' ? selectedPerson.conversion_rate : selectedPerson.close_rate}%
                     </p>
                     <p className="text-xs text-purple-600">{selectedPerson.type === 'pre_sales' ? 'Conversion Rate' : 'Close Rate'}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-orange-50 border-orange-200">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-3xl font-bold text-orange-700">{personLeads.length}</p>
+                  <CardContent className="p-3 sm:p-4 text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-orange-700">{personLeads.length}</p>
                     <p className="text-xs text-orange-600">Filtered Results</p>
                   </CardContent>
                 </Card>
@@ -2082,10 +2279,10 @@ export default function MarketingBoard() {
 
               {/* Stage Breakdown */}
               <Card>
-                <CardHeader className="pb-2">
+                <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-2">
                   <CardTitle className="text-sm">Lead Stage Breakdown</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                   <div className="flex flex-wrap gap-2">
                     {Object.entries(getStageStats(personLeads)).map(([stage, count]) => (
                       <Badge key={stage} variant="outline" className="text-xs">
@@ -2099,13 +2296,13 @@ export default function MarketingBoard() {
 
               {/* Filters */}
               <Card>
-                <CardHeader className="pb-2">
+                <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Filter className="h-4 w-4" /> Filters
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-4 gap-3">
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div>
                       <Label className="text-xs">From Date</Label>
                       <Input 
@@ -2174,10 +2371,37 @@ export default function MarketingBoard() {
 
               {/* Leads Table */}
               <Card>
-                <CardHeader className="pb-2">
+                <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-2">
                   <CardTitle className="text-sm">Leads ({personLeads.length})</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  {isMobile ? (
+                    <div className="max-h-[300px] overflow-y-auto divide-y border rounded-lg" data-testid="person-leads-mobile-list">
+                      {personLeads.map(lead => (
+                        <div key={lead.lead_id} className="flex items-start gap-2 p-2.5">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm truncate">{lead.name}</p>
+                            <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} testIdPrefix={`person-leads-card-contact-${lead.lead_id}`} />
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              <Badge className={`text-[10px] px-1.5 ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
+                                {lead.source?.replace('_', ' ')}
+                              </Badge>
+                              <Badge variant="outline" className="text-[10px] px-1.5 capitalize">
+                                {lead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}
+                              </Badge>
+                              <span className="text-[10px] text-gray-500">{fmtLeadDate(lead.created_at)} {fmtLeadTime(lead.created_at)}</span>
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="sm" className="h-9 w-9 p-0 shrink-0" onClick={() => { setEditingLead(lead); setShowEditLead(true); }}>
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      {personLeads.length === 0 && (
+                        <p className="p-6 text-center text-sm text-gray-500">No leads found with current filters</p>
+                      )}
+                    </div>
+                  ) : (
                   <div className="overflow-x-auto max-h-[300px]">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 border-b sticky top-0">
@@ -2230,6 +2454,7 @@ export default function MarketingBoard() {
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -2239,7 +2464,7 @@ export default function MarketingBoard() {
 
       {/* Add Team Member Dialog */}
       <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Add Team Member</DialogTitle>
             <DialogDescription>Add a new Pre-Sales or Sales team member</DialogDescription>
@@ -2294,7 +2519,7 @@ export default function MarketingBoard() {
 
       {/* Edit Lead Dialog */}
       <Dialog open={showEditLead} onOpenChange={setShowEditLead}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Edit Lead</DialogTitle>
             <DialogDescription>Update lead information</DialogDescription>
@@ -2343,16 +2568,16 @@ export default function MarketingBoard() {
 
       {/* Lead Detail Dialog */}
       <Dialog open={showLeadDetail} onOpenChange={setShowLeadDetail}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold">
+            <DialogTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-left pr-6">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-lg sm:text-xl font-bold shrink-0">
                   {selectedLead?.name?.charAt(0)?.toUpperCase()}
                 </div>
-                <div>
-                  <h3 className="text-xl font-bold">{selectedLead?.name}</h3>
-                  <div className="flex items-center gap-2 mt-1">
+                <div className="min-w-0">
+                  <h3 className="text-lg sm:text-xl font-bold break-words">{selectedLead?.name}</h3>
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-1">
                     <Badge className={SOURCE_COLORS[selectedLead?.source] || SOURCE_COLORS.other}>
                       {selectedLead?.source_display || selectedLead?.source}
                     </Badge>
@@ -2363,10 +2588,10 @@ export default function MarketingBoard() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => { setShowLeadDetail(false); openEditLead(selectedLead); }}
                   className="text-amber-600 border-blue-200 hover:bg-amber-50"
                 >
@@ -2398,17 +2623,17 @@ export default function MarketingBoard() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-gray-600">Contact Information</CardTitle>
                   </CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-4">
+                  <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     {selectedLead.phone && (
-                      <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-gray-400" />
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Phone className="h-4 w-4 text-gray-400 shrink-0" />
                         <span className="font-medium">{selectedLead.phone}</span>
                       </div>
                     )}
                     {selectedLead.email && (
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-gray-400" />
-                        <span>{selectedLead.email}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Mail className="h-4 w-4 text-gray-400 shrink-0" />
+                        <span className="break-all">{selectedLead.email}</span>
                       </div>
                     )}
                     {selectedLead.city && (
@@ -2432,11 +2657,11 @@ export default function MarketingBoard() {
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium text-gray-600">Additional Details</CardTitle>
                     </CardHeader>
-                    <CardContent className="grid grid-cols-2 gap-3">
+                    <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {Object.entries(selectedLead.custom_fields).map(([key, value]) => (
-                        <div key={key} className="bg-gray-50 rounded-lg p-3">
-                          <span className="text-xs text-gray-500">{key}</span>
-                          <p className="font-medium">{value || '-'}</p>
+                        <div key={key} className="bg-gray-50 rounded-lg p-3 min-w-0">
+                          <span className="text-xs text-gray-500 break-words">{key}</span>
+                          <p className="font-medium break-words">{value || '-'}</p>
                         </div>
                       ))}
                     </CardContent>
@@ -2448,22 +2673,22 @@ export default function MarketingBoard() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-gray-600">Lead Details</CardTitle>
                   </CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-4">
-                    <div className="bg-gray-50 rounded-lg p-3">
+                  <CardContent className="grid grid-cols-2 gap-2 sm:gap-4">
+                    <div className="bg-gray-50 rounded-lg p-3 min-w-0">
                       <span className="text-xs text-gray-500">Lead ID</span>
-                      <p className="font-mono text-sm">{selectedLead.lead_id}</p>
+                      <p className="font-mono text-sm break-all">{selectedLead.lead_id}</p>
                     </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="bg-gray-50 rounded-lg p-3 min-w-0">
                       <span className="text-xs text-gray-500">Created</span>
-                      <p className="font-medium">{new Date(selectedLead.created_at).toLocaleString()}</p>
+                      <p className="font-medium break-words">{new Date(selectedLead.created_at).toLocaleString()}</p>
                     </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="bg-gray-50 rounded-lg p-3 min-w-0">
                       <span className="text-xs text-gray-500">Source</span>
-                      <p className="font-medium">{selectedLead.source_display || selectedLead.source}</p>
+                      <p className="font-medium break-words">{selectedLead.source_display || selectedLead.source}</p>
                     </div>
-                    <div className="bg-gray-50 rounded-lg p-3">
+                    <div className="bg-gray-50 rounded-lg p-3 min-w-0">
                       <span className="text-xs text-gray-500">Current Stage</span>
-                      <p className="font-medium">{selectedLead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}</p>
+                      <p className="font-medium break-words">{selectedLead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -2567,7 +2792,7 @@ export default function MarketingBoard() {
 
       {/* Delete Lead Confirmation Dialog */}
       <Dialog open={showDeleteLead} onOpenChange={setShowDeleteLead}>
-        <DialogContent>
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-red-600 flex items-center gap-2">
               <Trash2 className="h-5 w-5" /> Delete Lead
@@ -2585,9 +2810,9 @@ export default function MarketingBoard() {
                   <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold">
                     {deletingLead.name?.charAt(0)?.toUpperCase()}
                   </div>
-                  <div>
-                    <p className="font-medium text-red-800">{deletingLead.name}</p>
-                    <p className="text-sm text-red-600">{deletingLead.phone} • {deletingLead.email}</p>
+                  <div className="min-w-0">
+                    <p className="font-medium text-red-800 break-words">{deletingLead.name}</p>
+                    <p className="text-sm text-red-600 break-all">{deletingLead.phone} • {deletingLead.email}</p>
                   </div>
                 </div>
               </div>
@@ -2622,7 +2847,7 @@ export default function MarketingBoard() {
 
       {/* Bulk Delete Dialog */}
       <Dialog open={bulkDeleteDialog} onOpenChange={(open) => { if (!open) { setBulkDeleteDialog(false); setBulkDeleteConfirm(''); } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-red-600 flex items-center gap-2">
               <Trash2 className="h-5 w-5" /> Delete {selectedLeadIds.size} Leads
@@ -2661,7 +2886,7 @@ export default function MarketingBoard() {
 
       {/* Google Sheets Connection Dialog */}
       <Dialog open={showSheetsDialog} onOpenChange={setShowSheetsDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileSpreadsheet className="h-6 w-6 text-emerald-600" />
@@ -2672,9 +2897,9 @@ export default function MarketingBoard() {
           
           <div className="mt-4">
             {/* Connection Status */}
-            <div className="mb-6 p-4 rounded-lg border bg-gray-50">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+            <div className="mb-6 p-3 sm:p-4 rounded-lg border bg-gray-50">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   {sheetsConfig?.is_connected ? (
                     <>
                       <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -2709,15 +2934,15 @@ export default function MarketingBoard() {
               </div>
               {!sheetsConfig?.has_credentials && (
                 <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-start gap-2 justify-between">
-                    <div className="flex items-start gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-start gap-2 justify-between">
+                    <div className="flex items-start gap-2 min-w-0">
                       <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
                       <div className="text-sm">
                         <p className="font-medium text-yellow-800">Setup Required</p>
                         <p className="text-yellow-700">Google Sheets credentials need to be configured before connecting.</p>
                       </div>
                     </div>
-                    <Button size="sm" variant="outline" onClick={openCredentialsDialog} className="gap-1.5 shrink-0">
+                    <Button size="sm" variant="outline" onClick={openCredentialsDialog} className="gap-1.5 shrink-0 self-start">
                       <Settings className="h-3.5 w-3.5" /> Configure
                     </Button>
                   </div>
@@ -2728,15 +2953,15 @@ export default function MarketingBoard() {
             {/* Tabs for Sources */}
             {sheetsConfig?.is_connected && (
               <Tabs value={sheetsTab} onValueChange={setSheetsTab} className="mt-4">
-                <TabsList className="bg-gray-100">
-                  <TabsTrigger value="website" className="data-[state=active]:bg-white">
-                    <Building2 className="h-4 w-4 mr-2" /> Website
+                <TabsList className="bg-gray-100 grid grid-cols-3 w-full sm:inline-flex sm:w-auto">
+                  <TabsTrigger value="website" className="data-[state=active]:bg-white text-xs sm:text-sm px-1.5 sm:px-3">
+                    <Building2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2 shrink-0" /> Website
                   </TabsTrigger>
-                  <TabsTrigger value="sources" className="data-[state=active]:bg-white">
-                    <Table className="h-4 w-4 mr-2" /> All Sources
+                  <TabsTrigger value="sources" className="data-[state=active]:bg-white text-xs sm:text-sm px-1.5 sm:px-3">
+                    <Table className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2 shrink-0" /> All Sources
                   </TabsTrigger>
-                  <TabsTrigger value="add" className="data-[state=active]:bg-white">
-                    <Plus className="h-4 w-4 mr-2" /> Add More
+                  <TabsTrigger value="add" className="data-[state=active]:bg-white text-xs sm:text-sm px-1.5 sm:px-3">
+                    <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 sm:mr-2 shrink-0" /> Add More
                   </TabsTrigger>
                 </TabsList>
 
@@ -2776,10 +3001,10 @@ export default function MarketingBoard() {
                   {sheetPreview && (
                     <Card className="border-emerald-200">
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-base flex items-center gap-2">
-                          <Table className="h-5 w-5 text-emerald-600" />
-                          Preview: {sheetPreview.selected_sheet}
-                          <Badge className="ml-2 bg-emerald-100 text-emerald-700">{sheetPreview.total_rows} rows</Badge>
+                        <CardTitle className="text-base flex flex-wrap items-center gap-2">
+                          <Table className="h-5 w-5 text-emerald-600 shrink-0" />
+                          <span className="break-words">Preview: {sheetPreview.selected_sheet}</span>
+                          <Badge className="sm:ml-2 bg-emerald-100 text-emerald-700">{sheetPreview.total_rows} rows</Badge>
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
@@ -2909,15 +3134,15 @@ export default function MarketingBoard() {
                     <div className="space-y-3">
                       {sheetSources.map(source => (
                         <Card key={source.source_id} className="border-l-4 border-l-emerald-500">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="font-medium">{source.name}</p>
+                          <CardContent className="p-3 sm:p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium break-words">{source.name}</p>
                                 <p className="text-sm text-gray-500">
                                   {source.row_count} rows • Last synced: {source.last_synced ? new Date(source.last_synced).toLocaleString() : 'Never'}
                                 </p>
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 shrink-0">
                                 <Button
                                   size="sm"
                                   onClick={() => importLeads(source.source_id)}
@@ -2997,10 +3222,10 @@ export default function MarketingBoard() {
                   {sheetPreview && sheetsTab === 'add' && (
                     <Card className="border-emerald-200">
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-base flex items-center gap-2">
-                          <Table className="h-5 w-5 text-emerald-600" />
-                          Preview: {sheetPreview.selected_sheet}
-                          <Badge className="ml-2 bg-emerald-100 text-emerald-700">{sheetPreview.total_rows} rows</Badge>
+                        <CardTitle className="text-base flex flex-wrap items-center gap-2">
+                          <Table className="h-5 w-5 text-emerald-600 shrink-0" />
+                          <span className="break-words">Preview: {sheetPreview.selected_sheet}</span>
+                          <Badge className="sm:ml-2 bg-emerald-100 text-emerald-700">{sheetPreview.total_rows} rows</Badge>
                         </CardTitle>
                       </CardHeader>
                       <CardContent>
@@ -3138,7 +3363,7 @@ export default function MarketingBoard() {
 
       {/* Export to Google Sheets Dialog */}
       <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Download className="h-5 w-5 text-amber-600" />
@@ -3222,7 +3447,7 @@ export default function MarketingBoard() {
 
       {/* Add New Lead Dialog */}
       <Dialog open={showAddLead} onOpenChange={setShowAddLead}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="h-5 w-5 text-green-600" />
@@ -3234,8 +3459,8 @@ export default function MarketingBoard() {
           </DialogHeader>
           
           <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div className="sm:col-span-2">
                 <Label>Lead Name *</Label>
                 <Input
                   value={newLeadForm.name}
@@ -3352,7 +3577,7 @@ export default function MarketingBoard() {
                 </Select>
               </div>
               
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Label>Notes</Label>
                 <Input
                   value={newLeadForm.notes}
@@ -3374,7 +3599,7 @@ export default function MarketingBoard() {
 
       {/* ======================== ROLE TRANSFER DIALOG ======================== */}
       <Dialog open={transferDialog.open} onOpenChange={(o) => !o && setTransferDialog({ open: false, step: 1, member: null })}>
-        <DialogContent className="max-w-2xl" data-testid="transfer-role-dialog">
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-2xl" data-testid="transfer-role-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ArrowRightLeft className="h-5 w-5 text-amber-600" />
@@ -3497,7 +3722,7 @@ export default function MarketingBoard() {
 
       {/* Google Sheets OAuth Credentials Settings */}
       <Dialog open={showCredentialsDialog} onOpenChange={setShowCredentialsDialog}>
-        <DialogContent className="max-w-md" data-testid="sheets-credentials-dialog">
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-md" data-testid="sheets-credentials-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Settings className="h-5 w-5" /> Google Sheets Credentials</DialogTitle>
             <DialogDescription>
