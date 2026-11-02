@@ -6,7 +6,8 @@ import {
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
   Calendar, ClipboardList, Warehouse, Save, Trash2, History,
   ChevronRight, Banknote, ArrowRight, Eye, Circle,
-  ListChecks, CheckCircle2, Video, FileText, IndianRupee, Archive
+  ListChecks, CheckCircle2, Video, FileText, IndianRupee, Archive,
+  Search, SlidersHorizontal, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -16,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
@@ -288,6 +290,10 @@ export default function SiteEngineerProject() {
   const [inventoryDateRange, setInventoryDateRange] = useState(null);
   // Material Requests date filter
   const [matReqDateRange, setMatReqDateRange] = useState(null);
+  // Nov 2 2026 — Material Requests search (material / ID / vendor / brand)
+  // and Filter popover (priority / vendor / payment mode).
+  const [matReqSearch, setMatReqSearch] = useState('');
+  const [matReqFilters, setMatReqFilters] = useState({ priority: 'all', vendor: 'all', payment: 'all' });
   // Quick "Out Stock" / consume dialog
   const [consumeDialog, setConsumeDialog] = useState({ open: false, material: null, qty: '', notes: '' });
   const [savingConsume, setSavingConsume] = useState(false);
@@ -1084,14 +1090,30 @@ export default function SiteEngineerProject() {
 
   // Lifecycle bucketing — exclude rejected from all views
   const lifecycleItemsRaw = material_requests.filter(r => !['rejected', 'procurement_rejected'].includes((r.status || '').toLowerCase()));
+  const matVendorOf = (r) => r.vendor_name || r.assigned_vendor_name || '';
+  const matVendorOptions = [...new Set(lifecycleItemsRaw.map(matVendorOf).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const matPaymentOptions = [...new Set(lifecycleItemsRaw.map(r => r.payment_mode).filter(Boolean))].sort();
+  const matPaymentLabel = (m) => m.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const matActiveFilterCount = ['priority', 'vendor', 'payment'].filter(k => matReqFilters[k] !== 'all').length;
+  const matSearchTerm = matReqSearch.trim().toLowerCase();
   const lifecycleItems = (() => {
-    if (!matReqDateRange?.from || !matReqDateRange?.to) return lifecycleItemsRaw;
-    const fromTs = new Date(matReqDateRange.from + 'T00:00:00').getTime();
-    const toTs = new Date(matReqDateRange.to + 'T23:59:59').getTime();
-    return lifecycleItemsRaw.filter(r => {
-      const t = new Date(r.created_at || 0).getTime();
-      return t >= fromTs && t <= toTs;
-    });
+    let items = lifecycleItemsRaw;
+    if (matReqDateRange?.from && matReqDateRange?.to) {
+      const fromTs = new Date(matReqDateRange.from + 'T00:00:00').getTime();
+      const toTs = new Date(matReqDateRange.to + 'T23:59:59').getTime();
+      items = items.filter(r => {
+        const t = new Date(r.created_at || 0).getTime();
+        return t >= fromTs && t <= toTs;
+      });
+    }
+    if (matSearchTerm) {
+      items = items.filter(r => [r.material_name, r.request_number, r.order_id, r.request_id, matVendorOf(r), r.brand]
+        .some(v => String(v || '').toLowerCase().includes(matSearchTerm)));
+    }
+    if (matReqFilters.priority === 'high') items = items.filter(r => r.is_high_priority);
+    if (matReqFilters.vendor !== 'all') items = items.filter(r => matVendorOf(r) === matReqFilters.vendor);
+    if (matReqFilters.payment !== 'all') items = items.filter(r => r.payment_mode === matReqFilters.payment);
+    return items;
   })();
   const bucketCounts = lifecycleItems.reduce((acc, r) => {
     acc.all = (acc.all || 0) + 1;
@@ -1752,6 +1774,88 @@ export default function SiteEngineerProject() {
                 </div>
               </CardHeader>
               <CardContent className="p-3 sm:p-6 pt-0">
+                {/* Search + Filter — narrows the stage cards' counts and the list below */}
+                <div className="flex items-center gap-2 mb-3" data-testid="se-mat-search-row">
+                  <div className="relative flex-1 min-w-0 sm:max-w-sm">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                    <Input
+                      value={matReqSearch}
+                      onChange={(e) => setMatReqSearch(e.target.value)}
+                      placeholder="Search material, ID, vendor…"
+                      className="pl-8 pr-8 h-9 text-xs"
+                      data-testid="se-mat-search"
+                    />
+                    {matReqSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setMatReqSearch('')}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 hover:text-gray-600"
+                        title="Clear search"
+                        data-testid="se-mat-search-clear"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={`h-9 gap-1 text-xs shrink-0 ${matActiveFilterCount ? 'border-amber-500 text-amber-700' : ''}`}
+                        data-testid="se-mat-filter-btn"
+                      >
+                        <SlidersHorizontal className="h-3.5 w-3.5" />
+                        Filter
+                        {matActiveFilterCount > 0 && (
+                          <span className="ml-0.5 h-4 min-w-4 px-1 rounded-full bg-amber-600 text-white text-[10px] leading-4 text-center">{matActiveFilterCount}</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-64 max-w-[calc(100vw-2rem)] p-3 space-y-3" data-testid="se-mat-filter-panel">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Priority</Label>
+                        <Select value={matReqFilters.priority} onValueChange={(v) => setMatReqFilters(f => ({ ...f, priority: v }))}>
+                          <SelectTrigger className="h-8 text-xs" data-testid="se-mat-filter-priority"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All requests</SelectItem>
+                            <SelectItem value="high">High priority only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Vendor</Label>
+                        <Select value={matReqFilters.vendor} onValueChange={(v) => setMatReqFilters(f => ({ ...f, vendor: v }))}>
+                          <SelectTrigger className="h-8 text-xs" data-testid="se-mat-filter-vendor"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All vendors</SelectItem>
+                            {matVendorOptions.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Payment</Label>
+                        <Select value={matReqFilters.payment} onValueChange={(v) => setMatReqFilters(f => ({ ...f, payment: v }))}>
+                          <SelectTrigger className="h-8 text-xs" data-testid="se-mat-filter-payment"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All payment modes</SelectItem>
+                            {matPaymentOptions.map(m => <SelectItem key={m} value={m}>{matPaymentLabel(m)}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full h-8 text-xs text-gray-600"
+                        disabled={!matActiveFilterCount}
+                        onClick={() => setMatReqFilters({ priority: 'all', vendor: 'all', payment: 'all' })}
+                        data-testid="se-mat-filter-clear"
+                      >
+                        Clear filters
+                      </Button>
+                    </PopoverContent>
+                  </Popover>
+                </div>
                 {/* Unified lifecycle filter cards (mirrors Procurement / Planning) */}
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 mb-3" data-testid="se-mat-lifecycle-cards">
                   {LIFECYCLE_BUCKETS.map(b => {
@@ -1780,7 +1884,7 @@ export default function SiteEngineerProject() {
                 {visibleLifecycleItems.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <Package className="h-10 w-10 mx-auto mb-3 text-gray-400" />
-                    <p className="text-sm">No requests in this bucket</p>
+                    <p className="text-sm">{(matSearchTerm || matActiveFilterCount) ? 'No requests match your search or filters' : 'No requests in this bucket'}</p>
                   </div>
                 ) : (
                   <div className="space-y-2 sm:space-y-3" data-testid="se-mat-list">
