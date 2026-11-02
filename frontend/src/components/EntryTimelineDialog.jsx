@@ -32,8 +32,8 @@ const modeAndRef = (mode, ref) => [ref && ref.startsWith(mode) ? '' : mode, ref]
 
 // Material: the request's own approval/delivery steps (buildTimeline, shared
 // with OrderDetailDialog), each bill Procurement sent to Accounts, and every
-// payment leg against it.
-function buildMaterialView({ request: req, bills = [], payments = [] }, entryId, modeLabel) {
+// payment leg against it. Also used by Pay & Settle (PayApprovalDialog).
+export function buildMaterialView({ request: req, bills = [], payments = [] }, entryId, modeLabel) {
   const events = buildTimeline(req, { skipPaymentStamps: payments.length > 0 });
   bills.forEach(b => {
     const phase = b.payment_phase && b.payment_phase !== 'full' ? `${b.payment_phase} ` : '';
@@ -215,6 +215,46 @@ function buildIncomeView({ income: inc, stage, cheques = [], user_names: names =
   };
 }
 
+// The dotted list of events, oldest first; the latest gets the orange ring.
+// Nov 2 2026 — also shown inside Pay & Settle for a material bill.
+export function TimelineEvents({ events, Amount = PlainAmount }) {
+  if (events.length === 0) {
+    return <p className="text-center py-6 text-gray-400 text-sm">No timeline events recorded yet.</p>;
+  }
+  return (
+    <div className="relative pl-6" data-testid="entry-timeline">
+      <div className="absolute left-[9px] top-2 bottom-2 w-0.5 bg-gray-200"></div>
+      <div className="space-y-3">
+        {events.map((ev, idx) => {
+          const Icon = ev.icon;
+          return (
+            <div key={idx} className={`relative flex items-start gap-3 ${ev.current ? 'bg-amber-50 -mx-2 px-2 py-1 rounded-md' : ''}`}>
+              <div className={`absolute ${ev.current ? '-left-4' : '-left-6'} mt-0.5 w-[18px] h-[18px] rounded-full flex items-center justify-center bg-white border-2 ${idx === events.length - 1 ? 'border-orange-400' : 'border-gray-300'}`}>
+                <Icon className={`h-2.5 w-2.5 ${ev.color}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <p className={`text-sm font-medium ${ev.unpaid ? 'text-red-700' : 'text-gray-900'}`}>
+                    {ev.label}
+                    {ev.current && <Badge className="ml-2 text-[10px] bg-amber-100 text-amber-800 hover:bg-amber-100">This entry</Badge>}
+                  </p>
+                  {ev.amount != null && (
+                    <span className={`text-sm font-semibold whitespace-nowrap ${ev.unpaid ? 'text-red-600' : 'text-gray-900'}`}>
+                      <Amount value={ev.amount} />
+                    </span>
+                  )}
+                </div>
+                {ev.detail && <p className="text-xs text-gray-600 break-words">{ev.detail}</p>}
+                <p className="text-xs text-gray-500">{ev.by} · {fmtDateTime(ev.date)}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const KINDS = {
   material: { url: (id) => `${API}/accountant/material-timeline/${encodeURIComponent(id)}`, build: buildMaterialView },
   income: { url: (id) => `${API}/accountant/income-timeline/${encodeURIComponent(id)}`, build: (data, _id, modeLabel) => buildIncomeView(data, modeLabel) },
@@ -289,40 +329,7 @@ export default function EntryTimelineDialog({ open, onClose, kind, entryId, Amou
                 <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
                   <Calendar className="h-4 w-4 text-gray-600" /> Timeline
                 </h3>
-                {events.length === 0 ? (
-                  <p className="text-center py-6 text-gray-400 text-sm">No timeline events recorded yet.</p>
-                ) : (
-                  <div className="relative pl-6" data-testid="entry-timeline">
-                    <div className="absolute left-[9px] top-2 bottom-2 w-0.5 bg-gray-200"></div>
-                    <div className="space-y-3">
-                      {events.map((ev, idx) => {
-                        const Icon = ev.icon;
-                        return (
-                          <div key={idx} className={`relative flex items-start gap-3 ${ev.current ? 'bg-amber-50 -mx-2 px-2 py-1 rounded-md' : ''}`}>
-                            <div className={`absolute ${ev.current ? '-left-4' : '-left-6'} mt-0.5 w-[18px] h-[18px] rounded-full flex items-center justify-center bg-white border-2 ${idx === events.length - 1 ? 'border-orange-400' : 'border-gray-300'}`}>
-                              <Icon className={`h-2.5 w-2.5 ${ev.color}`} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <p className={`text-sm font-medium ${ev.unpaid ? 'text-red-700' : 'text-gray-900'}`}>
-                                  {ev.label}
-                                  {ev.current && <Badge className="ml-2 text-[10px] bg-amber-100 text-amber-800 hover:bg-amber-100">This entry</Badge>}
-                                </p>
-                                {ev.amount != null && (
-                                  <span className={`text-sm font-semibold whitespace-nowrap ${ev.unpaid ? 'text-red-600' : 'text-gray-900'}`}>
-                                    <Amount value={ev.amount} />
-                                  </span>
-                                )}
-                              </div>
-                              {ev.detail && <p className="text-xs text-gray-600 break-words">{ev.detail}</p>}
-                              <p className="text-xs text-gray-500">{ev.by} · {fmtDateTime(ev.date)}</p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                <TimelineEvents events={events} Amount={Amount} />
               </div>
             </>
           )}
