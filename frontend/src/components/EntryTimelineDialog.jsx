@@ -293,7 +293,8 @@ export default function EntryTimelineDialog({ open, onClose, kind, entryId, Amou
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="w-[calc(100%-1.5rem)] sm:max-w-2xl max-h-[90dvh] sm:max-h-[90vh] overflow-y-auto p-0 rounded-xl sm:rounded-lg" data-testid="entry-timeline-dialog">
+      {/* [&>button:last-child]:z-20 keeps the dialog's X above the sticky header. */}
+      <DialogContent className="w-[calc(100%-1.5rem)] sm:max-w-2xl max-h-[90dvh] sm:max-h-[90vh] overflow-y-auto p-0 rounded-xl sm:rounded-lg [&>button:last-child]:z-20" data-testid="entry-timeline-dialog">
         <div className="sticky top-0 z-10 bg-white border-b px-4 py-3 sm:px-6 sm:py-4 pr-10">
           <DialogHeader className="space-y-0 text-left">
             <DialogTitle className="text-base sm:text-lg font-bold">{view?.title || 'Timeline'}</DialogTitle>

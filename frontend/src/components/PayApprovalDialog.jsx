@@ -9,8 +9,8 @@ import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Loader2, CheckCircle2, AlertCircle, Banknote, Building2, CreditCard, FileText, Wallet, Search, Lock, Send, Plus, Trash2, Calendar, ChevronDown, ChevronUp } from 'lucide-react';
-import { buildMaterialView, TimelineEvents } from './EntryTimelineDialog';
+import { Loader2, CheckCircle2, AlertCircle, Banknote, Building2, CreditCard, FileText, Wallet, Search, Lock, Send, Plus, Trash2, Eye } from 'lucide-react';
+import EntryTimelineDialog from './EntryTimelineDialog';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
@@ -88,22 +88,12 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, requestId, reqType]);
 
-  // Nov 2 2026 — Material Timeline: the request's whole life (SE request,
-  // approvals, delivery, bills sent to Accounts, earlier payment legs) inside
-  // Pay & Settle, from the same endpoint and builder as Cashbook's eye icon.
-  const [timeline, setTimeline] = useState({ loading: false, data: null, error: '' });
-  const [showTimeline, setShowTimeline] = useState(true);
-  useEffect(() => {
-    if (!open || !requestId || reqType !== 'material') return undefined;
-    let cancelled = false;
-    setTimeline({ loading: true, data: null, error: '' });
-    axios.get(`${API}/accountant/material-timeline/${encodeURIComponent(requestId)}`)
-      .then(r => { if (!cancelled) setTimeline({ loading: false, data: r.data, error: '' }); })
-      .catch(e => { if (!cancelled) setTimeline({ loading: false, data: null, error: e?.response?.data?.detail || 'Could not load the timeline' }); });
-    return () => { cancelled = true; };
-  }, [open, requestId, reqType]);
+  // Nov 2 2026 — Material Timeline: the eye icon next to the title opens the
+  // request's whole life (SE request, approvals, delivery, bills sent to
+  // Accounts, earlier payment legs) in Cashbook's timeline popup.
+  const [showTimeline, setShowTimeline] = useState(false);
+  useEffect(() => { if (!open) setShowTimeline(false); }, [open]);
   const methodLabel = (m) => METHOD_OPTS.find(o => o.v === m)?.label || (m || '').replace(/_/g, ' ').toUpperCase();
-  const timelineEvents = timeline.data ? buildMaterialView(timeline.data, requestId, methodLabel).events : [];
 
   const vendorCredit = Math.max(0, Number(ctx?.suspense?.vendor_balance || 0));
   const applySusNum = Math.min(Number(applySuspense) || 0, vendorCredit);
@@ -351,11 +341,34 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wallet className="h-5 w-5 text-emerald-600" /> Pay & Settle — {reqType?.replace('_', ' ')}
+            {reqType === 'material' && requestId && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                onClick={() => setShowTimeline(true)}
+                data-testid="pay-material-timeline-btn"
+                title="View material timeline"
+                aria-label="View material timeline"
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+            )}
             {isContinuation && (
               <Badge className="bg-yellow-100 text-yellow-800 text-[10px] ml-2">Continuation · Partially Paid</Badge>
             )}
           </DialogTitle>
         </DialogHeader>
+        {/* Rendered inside this DialogContent so a click in the timeline
+            popup doesn't count as an outside click that closes Pay & Settle. */}
+        <EntryTimelineDialog
+          open={showTimeline}
+          kind="material"
+          entryId={requestId}
+          onClose={() => setShowTimeline(false)}
+          modeLabel={methodLabel}
+        />
 
         {loading || !ctx ? (
           <div className="py-12 text-center text-gray-400 flex items-center justify-center gap-2">
@@ -405,34 +418,6 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
                 )}
               </CardContent>
             </Card>
-
-            {reqType === 'material' && (
-              <Card className="border-gray-200" data-testid="pay-material-timeline">
-                <CardContent className="p-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowTimeline(v => !v)}
-                    className="w-full flex items-center justify-between gap-2 text-left"
-                    data-testid="pay-material-timeline-toggle"
-                  >
-                    <span className="text-xs font-semibold text-gray-700 uppercase flex items-center gap-1.5">
-                      <Calendar className="h-3.5 w-3.5 text-gray-600" /> Material Timeline
-                      {timelineEvents.length > 0 && <span className="font-normal normal-case text-gray-400">· {timelineEvents.length} steps</span>}
-                    </span>
-                    <span className="text-[11px] text-gray-500 flex items-center gap-0.5">
-                      {showTimeline ? <>Hide <ChevronUp className="h-3.5 w-3.5" /></> : <>Show <ChevronDown className="h-3.5 w-3.5" /></>}
-                    </span>
-                  </button>
-                  {showTimeline && (
-                    <div className="mt-3 max-h-72 overflow-y-auto pr-1">
-                      {timeline.loading && <p className="text-center text-xs text-gray-400 py-4">Loading timeline…</p>}
-                      {timeline.error && <p className="text-center text-xs text-red-600 py-4">{timeline.error}</p>}
-                      {timeline.data && <TimelineEvents events={timelineEvents} />}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
 
             {/* Live math summary */}
             <Card className={`${isExact ? 'bg-emerald-50 border-emerald-300' : isOver ? 'bg-blue-50 border-blue-300' : 'bg-amber-50 border-amber-300'} border-2`}>
