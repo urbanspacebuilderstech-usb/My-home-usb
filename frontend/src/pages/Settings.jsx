@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
 import { NumericInput } from '../components/NumericInput';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -29,9 +30,18 @@ const CURRENCIES = [
   { value: 'AED', label: 'UAE Dirham (AED)' }
 ];
 
+const ADMIN_EVENTS_PAGE = 50;
+
+const fmtShortStamp = (s) => (s
+  ? new Date(s).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+  : '—');
+
 export default function Settings() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('company');
+  // Nov 2 2026 — phones get cards instead of the Login Details / Admin Login
+  // History tables (they scrolled sideways and cut off name and email).
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [summary, setSummary] = useState(null);
@@ -147,8 +157,11 @@ export default function Settings() {
   const [adminHistoryLoading, setAdminHistoryLoading] = useState(false);
   const [adminHistoryDays, setAdminHistoryDays] = useState(0); // 0 = all time
   const [adminHistoryFailed, setAdminHistoryFailed] = useState(true);
+  // Phone event cards are built this many at a time (the log holds up to 500).
+  const [adminEventsVisible, setAdminEventsVisible] = useState(ADMIN_EVENTS_PAGE);
   const fetchAdminHistory = async (days = adminHistoryDays, withFailed = adminHistoryFailed) => {
     setAdminHistoryLoading(true);
+    setAdminEventsVisible(ADMIN_EVENTS_PAGE);
     try {
       const r = await axios.get(`${API}/admin/superadmin-login-history`, {
         params: { days, include_failed: withFailed, limit: 500 },
@@ -334,35 +347,37 @@ export default function Settings() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'login-details') fetchLoginDetails(); if (v === 'admin-login-history') fetchAdminHistory(); }}>
-          <TabsList className="mb-4 sm:mb-6 w-full sm:w-auto overflow-x-auto">
-            <TabsTrigger value="company" className="gap-1 sm:gap-2 text-xs sm:text-sm">
+          {/* Phones: the tabs wrap onto rows instead of a sideways scroll that
+              hid the first ones off the left edge. */}
+          <TabsList className="mb-4 sm:mb-6 flex flex-wrap h-auto w-full gap-1 sm:inline-flex sm:flex-nowrap sm:w-auto sm:h-9">
+            <TabsTrigger value="company" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none px-2 sm:px-3">
               <Building className="h-3 w-3 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Company</span> Profile
             </TabsTrigger>
-            <TabsTrigger value="quick-links" className="gap-1 sm:gap-2 text-xs sm:text-sm">
+            <TabsTrigger value="quick-links" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none px-2 sm:px-3">
               <SettingsIcon className="h-3 w-3 sm:h-4 sm:w-4" /> Quick Links
             </TabsTrigger>
             {user?.role === 'super_admin' && (
-              <TabsTrigger value="cre-module" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-cre-module-tab">
+              <TabsTrigger value="cre-module" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none px-2 sm:px-3" data-testid="settings-cre-module-tab">
                 <Headphones className="h-3 w-3 sm:h-4 sm:w-4" /> CRE Module
               </TabsTrigger>
             )}
             {user?.role === 'super_admin' && (
-              <TabsTrigger value="user-app" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-user-app-tab">
+              <TabsTrigger value="user-app" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none px-2 sm:px-3" data-testid="settings-user-app-tab">
                 <Smartphone className="h-3 w-3 sm:h-4 sm:w-4" /> User App
               </TabsTrigger>
             )}
             {user?.role === 'super_admin' && (
-              <TabsTrigger value="branding" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-branding-tab">
+              <TabsTrigger value="branding" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none px-2 sm:px-3" data-testid="settings-branding-tab">
                 <Building2 className="h-3 w-3 sm:h-4 sm:w-4" /> Branding
               </TabsTrigger>
             )}
             {user?.role === 'super_admin' && (
-              <TabsTrigger value="login-details" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-login-details-tab">
+              <TabsTrigger value="login-details" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none px-2 sm:px-3" data-testid="settings-login-details-tab">
                 <Wifi className="h-3 w-3 sm:h-4 sm:w-4" /> Login Details
               </TabsTrigger>
             )}
             {user?.role === 'super_admin' && (
-              <TabsTrigger value="admin-login-history" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="settings-admin-login-history-tab">
+              <TabsTrigger value="admin-login-history" className="gap-1 sm:gap-2 text-xs sm:text-sm flex-1 sm:flex-none px-2 sm:px-3" data-testid="settings-admin-login-history-tab">
                 <ShieldCheck className="h-3 w-3 sm:h-4 sm:w-4" /> Admin Login History
               </TabsTrigger>
             )}
@@ -727,8 +742,8 @@ export default function Settings() {
           {user?.role === 'super_admin' && (
             <TabsContent value="login-details">
               <Card>
-                <CardHeader className="p-4 sm:p-6 flex flex-row items-center justify-between gap-3">
-                  <div>
+                <CardHeader className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="min-w-0">
                     <CardTitle className="text-base sm:text-lg flex items-center gap-2">
                       <Wifi className="h-5 w-5 text-emerald-600" /> Login Details
                     </CardTitle>
@@ -736,7 +751,7 @@ export default function Settings() {
                       Who's logged in right now, and every user's last login / last logout. "Live" means their session cookie hasn't expired yet — closing a tab without logging out still shows Online until it expires naturally.
                     </CardDescription>
                   </div>
-                  <Button variant="outline" size="sm" onClick={fetchLoginDetails} disabled={loginDetailsLoading} data-testid="login-details-refresh">
+                  <Button variant="outline" size="sm" onClick={fetchLoginDetails} disabled={loginDetailsLoading} className="self-start sm:self-auto shrink-0" data-testid="login-details-refresh">
                     <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loginDetailsLoading ? 'animate-spin' : ''}`} /> Refresh
                   </Button>
                 </CardHeader>
@@ -760,6 +775,40 @@ export default function Settings() {
                         </div>
                       </div>
 
+                      {isMobile ? (
+                        <div className="divide-y border rounded-lg" data-testid="login-details-cards">
+                          {(loginDetails.users || [])
+                            .slice()
+                            .sort((a, b) => (Number(b.is_online) - Number(a.is_online)) || (new Date(b.last_login || 0) - new Date(a.last_login || 0)))
+                            .map(u => (
+                            <div key={u.user_id} className="p-3" data-testid={`login-details-card-${u.user_id}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-800 truncate">{u.name}</p>
+                                  <p className="text-xs text-gray-500 truncate">{u.email}</p>
+                                  <p className="text-[11px] text-gray-500 capitalize">
+                                    {(u.role || '').replace(/_/g, ' ')}
+                                    {u.is_online && u.ip_address && <span className="normal-case text-gray-400"> · {u.ip_address}</span>}
+                                  </p>
+                                </div>
+                                {u.is_online ? (
+                                  <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                                    <Circle className="h-2 w-2 fill-emerald-500 text-emerald-500" /> Online
+                                  </span>
+                                ) : (
+                                  <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-semibold text-gray-500 bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded-full">
+                                    <Circle className="h-2 w-2 fill-gray-400 text-gray-400" /> Offline
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 mt-1.5 text-[11px]">
+                                <p className="text-gray-400">Last login <span className="block text-gray-700">{fmtShortStamp(u.last_login)}</span></p>
+                                <p className="text-gray-400">Last logout <span className="block text-gray-700">{fmtShortStamp(u.last_logout)}</span></p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs" data-testid="login-details-table">
                           <thead className="bg-gray-50 border-b">
@@ -802,6 +851,7 @@ export default function Settings() {
                           </tbody>
                         </table>
                       </div>
+                      )}
                     </>
                   )}
                 </CardContent>
@@ -858,9 +908,9 @@ export default function Settings() {
                           { label: 'Failed Attempts', value: adminHistory.summary?.failed_attempts ?? 0, cls: 'border-l-rose-500 text-rose-700' },
                           { label: 'Distinct IPs', value: adminHistory.summary?.distinct_ip_count ?? 0, cls: 'border-l-indigo-500 text-indigo-700' },
                           { label: 'Super Admins', value: adminHistory.summary?.super_admin_count ?? 0, cls: 'border-l-amber-500 text-amber-700' },
-                          { label: 'Showing', value: adminHistory.count ?? 0, cls: 'border-l-gray-400 text-gray-700' },
+                          { label: 'Showing', value: adminHistory.count ?? 0, cls: 'border-l-gray-400 text-gray-700', wide: true },
                         ].map((t) => (
-                          <div key={t.label} className={`rounded-lg border-l-4 bg-white p-3 shadow-sm ${t.cls.split(' ')[0]}`}>
+                          <div key={t.label} className={`rounded-lg border-l-4 bg-white p-3 shadow-sm ${t.cls.split(' ')[0]} ${t.wide ? 'col-span-2 sm:col-span-1' : ''}`}>
                             <p className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">{t.label}</p>
                             <p className={`text-lg font-bold ${t.cls.split(' ')[1]}`}>{t.value}</p>
                           </div>
@@ -881,6 +931,28 @@ export default function Settings() {
                       {(adminHistory.per_admin || []).length > 0 && (
                         <div className="mb-5">
                           <p className="text-xs font-semibold text-gray-700 mb-1.5">Per Super Admin</p>
+                          {isMobile ? (
+                            <div className="divide-y border rounded-lg" data-testid="admin-history-per-admin-cards">
+                              {adminHistory.per_admin.map((a) => (
+                                <div key={a.user_id} className="p-3">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium truncate">{a.name || '—'}</p>
+                                      <p className="text-xs text-gray-500 truncate">{a.email || '—'}</p>
+                                    </div>
+                                    <div className="shrink-0 text-right text-xs">
+                                      <p><span className="font-bold text-emerald-700">{a.login_count}</span> <span className="text-gray-500">logins</span></p>
+                                      <p className="text-gray-500">{a.distinct_ips} IPs</p>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 mt-1.5 text-[11px]">
+                                    <p className="text-gray-400">First login <span className="block text-gray-700">{fmtStamp(a.first_login)}</span></p>
+                                    <p className="text-gray-400">Last login <span className="block text-gray-700">{fmtStamp(a.last_login)}</span></p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
                           <div className="overflow-x-auto border rounded">
                             <table className="w-full text-xs">
                               <thead className="bg-gray-50">
@@ -907,10 +979,54 @@ export default function Settings() {
                               </tbody>
                             </table>
                           </div>
+                          )}
                         </div>
                       )}
 
                       <p className="text-xs font-semibold text-gray-700 mb-1.5">Full event log ({adminHistory.count})</p>
+                      {isMobile ? (
+                        <div className="border rounded-lg" data-testid="admin-history-event-cards">
+                          {(adminHistory.events || []).length === 0 ? (
+                            <p className="px-4 py-8 text-center text-xs text-gray-400">No login events recorded in this range.</p>
+                          ) : (
+                            <div className="divide-y">
+                              {adminHistory.events.slice(0, adminEventsVisible).map((e, i) => (
+                                <div key={e.audit_id || i} className="p-3 text-xs">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className="text-gray-400 tabular-nums shrink-0">{i + 1}.</span>
+                                      <span className={`shrink-0 inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
+                                        e.action === 'login' ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                        : e.action === 'logout' ? 'text-gray-600 bg-gray-50 border-gray-200'
+                                        : 'text-rose-700 bg-rose-50 border-rose-200'}`}>
+                                        {e.action === 'login' ? 'Login' : e.action === 'logout' ? 'Logout' : 'Failed'}
+                                      </span>
+                                      <span className="font-medium truncate">{e.name || '—'}</span>
+                                    </div>
+                                    <span className="shrink-0 text-[11px] text-gray-500 tabular-nums">{fmtShortStamp(e.timestamp)}</span>
+                                  </div>
+                                  {e.reason && <p className="mt-0.5 text-[10px] text-rose-600 break-words">{e.reason}</p>}
+                                  <p className="mt-1 text-[11px] text-gray-500 truncate">{e.email || '—'}</p>
+                                  <p className="text-[11px] text-gray-500 break-words">
+                                    <span className="font-mono text-gray-700">{e.ip_address || '—'}</span>
+                                    {' · '}{e.method || '—'}{' · '}<span title={e.user_agent || ''}>{shortDevice(e.user_agent)}</span>
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {(adminHistory.events || []).length > adminEventsVisible && (
+                            <button
+                              type="button"
+                              onClick={() => setAdminEventsVisible(v => v + ADMIN_EVENTS_PAGE)}
+                              className="w-full py-3 text-sm font-medium text-indigo-600 border-t active:bg-indigo-50"
+                              data-testid="admin-history-show-more"
+                            >
+                              Show {Math.min(ADMIN_EVENTS_PAGE, adminHistory.events.length - adminEventsVisible)} more · {adminHistory.events.length - adminEventsVisible} left
+                            </button>
+                          )}
+                        </div>
+                      ) : (
                       <div className="overflow-x-auto border rounded max-h-[520px] overflow-y-auto">
                         <table className="w-full text-xs">
                           <thead className="bg-gray-50 sticky top-0">
@@ -951,6 +1067,7 @@ export default function Settings() {
                           </tbody>
                         </table>
                       </div>
+                      )}
                     </>
                   )}
                 </CardContent>
