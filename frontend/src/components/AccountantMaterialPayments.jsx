@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Wallet, XCircle, AlertTriangle, FileImage, RefreshCw } from 'lucide-react';
+import { Wallet, XCircle, AlertTriangle, FileImage, RefreshCw, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import PayApprovalDialog from './PayApprovalDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
@@ -20,6 +20,8 @@ const fmt = (n) => {
   const d = Math.abs(v - Math.round(v)) < 0.005 ? 0 : 2;
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
 };
+// Same format as the photo times on Procurement's Verify Delivery.
+const fmtDateTime = (s) => { try { return new Date(s).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return s || '—'; } };
 
 // Oct 20 2026 — a bill can be hit by SEVERAL bounced cheques, and
 // `bounced_from_cheque_number` is a single field that each bounce overwrites,
@@ -76,7 +78,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
     if (req.dp_copy_image_id) photos.push({ label: 'DP Copy', file_id: req.dp_copy_image_id });
     // Legacy receipts (before the 4-photo split) only ever had this one.
     if (!photos.length && req.lorry_image_id) photos.push({ label: 'Lorry Photo', file_id: req.lorry_image_id });
-    return photos;
+    return photos.map(p => ({ ...p, uploaded_at: req.photo_uploaded_at?.[p.file_id] || null }));
   };
 
   const fetchQueue = useCallback(async () => {
@@ -378,32 +380,70 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                 {(() => {
                   const photos = collectionPhotos(req);
                   if (!photos.length) return null;
+                  // Nov 2 2026 — when each photo was uploaded and where the SE
+                  // was (the receipt's GPS fix), so Accounts can check the
+                  // delivery proof without going back to Procurement.
+                  const hasGps = req.receipt_gps_latitude != null && req.receipt_gps_longitude != null;
+                  const lat = Number(req.receipt_gps_latitude);
+                  const lng = Number(req.receipt_gps_longitude);
                   return (
-                    <div className="mt-1.5 flex items-center gap-2 flex-wrap" data-testid={`acc-mat-photos-${req.request_id}`}>
-                      <span className="text-[10px] uppercase text-gray-400 font-semibold">Collected Photos:</span>
-                      {photos.map((p, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setPhotoPreview({ open: true, photos, index: i })}
-                          className="relative h-9 w-9 shrink-0 rounded-md border border-gray-200 bg-gray-50 overflow-hidden hover:ring-2 hover:ring-emerald-400 transition"
-                          title={p.label}
-                          data-testid={`acc-mat-photo-${req.request_id}-${i}`}
-                        >
-                          <img
-                            src={`${API}/files/${p.file_id}/download`}
-                            alt={p.label}
-                            className="h-full w-full object-cover"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none';
-                              e.currentTarget.nextSibling.style.display = 'flex';
-                            }}
-                          />
-                          <span className="hidden absolute inset-0 items-center justify-center text-gray-400">
-                            <FileImage className="h-4 w-4" />
-                          </span>
-                        </button>
-                      ))}
+                    <div className="mt-2 space-y-1.5" data-testid={`acc-mat-photos-${req.request_id}`}>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
+                        <span className="text-[10px] uppercase text-gray-400 font-semibold">Collected Photos:</span>
+                        <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+                          {photos.map((p, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => setPhotoPreview({ open: true, photos, index: i })}
+                              className="flex items-center gap-1.5 min-w-0 rounded-md border border-gray-200 bg-white p-1 pr-2 text-left hover:ring-2 hover:ring-emerald-400 transition"
+                              title={p.label}
+                              data-testid={`acc-mat-photo-${req.request_id}-${i}`}
+                            >
+                              <span className="relative h-9 w-9 shrink-0 rounded bg-gray-50 overflow-hidden">
+                                <img
+                                  src={`${API}/files/${p.file_id}/download`}
+                                  alt={p.label}
+                                  className="h-full w-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none';
+                                    e.currentTarget.nextSibling.style.display = 'flex';
+                                  }}
+                                />
+                                <span className="hidden absolute inset-0 items-center justify-center text-gray-400">
+                                  <FileImage className="h-4 w-4" />
+                                </span>
+                              </span>
+                              <span className="min-w-0 leading-tight">
+                                <span className="block text-[10px] font-semibold text-gray-600 truncate">{p.label}</span>
+                                <span className="block text-[10px] text-gray-500" data-testid={`acc-mat-photo-time-${req.request_id}-${i}`}>
+                                  {p.uploaded_at ? fmtDateTime(p.uploaded_at) : 'Time not recorded'}
+                                </span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 flex-wrap text-[11px]" data-testid={`acc-mat-photo-location-${req.request_id}`}>
+                        <span className="text-[10px] uppercase text-gray-400 font-semibold">Location:</span>
+                        {hasGps ? (
+                          <>
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 font-medium text-blue-700 underline hover:text-blue-900"
+                              title="GPS captured on the Site Engineer's phone when the receipt was recorded"
+                              data-testid={`acc-mat-gps-link-${req.request_id}`}
+                            >
+                              <MapPin className="h-3 w-3" />Open in Google Maps
+                            </a>
+                            <span className="text-gray-400">({lat.toFixed(6)}, {lng.toFixed(6)})</span>
+                          </>
+                        ) : (
+                          <span className="text-gray-400">Not recorded</span>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
@@ -601,7 +641,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
           arrows to step through this request's other collected photos. */}
       <PhotoLightbox
         open={photoPreview.open}
-        photos={(photoPreview.photos || []).map(p => ({ src: `${API}/files/${p.file_id}/download`, label: p.label }))}
+        photos={(photoPreview.photos || []).map(p => ({ src: `${API}/files/${p.file_id}/download`, label: p.uploaded_at ? `${p.label} · ${fmtDateTime(p.uploaded_at)}` : p.label }))}
         index={photoPreview.index}
         onClose={() => setPhotoPreview({ open: false, photos: [], index: 0 })}
         onIndexChange={(i) => setPhotoPreview((d) => ({ ...d, index: i }))}

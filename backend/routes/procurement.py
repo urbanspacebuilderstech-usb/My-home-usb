@@ -2651,6 +2651,37 @@ async def procurement_simple_queue(
 RECEIPT_PHOTO_KEYS = ("vehicle_front_image_id", "vehicle_side_image_id", "material_image_id", "dp_copy_image_id", "lorry_image_id")
 
 
+async def _stamp_receipt_proof(rows: List[Dict[str, Any]]) -> None:
+    """Attach receipt proof to material_request rows, in place: the GPS point
+    of each request's latest receipt (`receipt_gps_latitude` /
+    `receipt_gps_longitude`) and every delivery photo's upload time keyed by
+    file_id (`photo_uploaded_at`). Two queries for the whole list.
+
+    Upload time is the file record's server-side `created_at`, which the SE
+    can't edit (unlike the receipt's own receive_date/receive_time). The GPS
+    fix is taken in the same Receive Material dialog the photos are uploaded
+    from — Confirm Receipt stays disabled until it is captured."""
+    req_ids = [r["request_id"] for r in rows if r.get("request_id")]
+    gps_by_req: Dict[str, Dict[str, Any]] = {}
+    if req_ids:
+        async for rc in db.material_receipts.find(
+            {"request_id": {"$in": req_ids}, "gps_latitude": {"$ne": None}, "gps_longitude": {"$ne": None}},
+            {"_id": 0, "request_id": 1, "gps_latitude": 1, "gps_longitude": 1},
+        ).sort("created_at", -1):
+            gps_by_req.setdefault(rc["request_id"], rc)
+    photo_ids = list({r[k] for r in rows for k in RECEIPT_PHOTO_KEYS if r.get(k)})
+    uploaded_at: Dict[str, str] = {}
+    if photo_ids:
+        async for f in db.files.find({"file_id": {"$in": photo_ids}}, {"_id": 0, "file_id": 1, "created_at": 1}):
+            if f.get("created_at"):
+                uploaded_at[f["file_id"]] = f["created_at"]
+    for r in rows:
+        rc = gps_by_req.get(r.get("request_id")) or {}
+        r["receipt_gps_latitude"] = rc.get("gps_latitude")
+        r["receipt_gps_longitude"] = rc.get("gps_longitude")
+        r["photo_uploaded_at"] = {r[k]: uploaded_at[r[k]] for k in RECEIPT_PHOTO_KEYS if r.get(k) in uploaded_at}
+
+
 @router.get("/procurement-simple/receipt-proof/{request_id}")
 async def receipt_proof(request_id: str, user: User = Depends(get_current_user)):
     """Oct 30 2026 — where and when the SE recorded a delivery: the GPS point
@@ -2662,25 +2693,15 @@ async def receipt_proof(request_id: str, user: User = Depends(get_current_user))
     if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     req = await db.material_requests.find_one(
-        {"request_id": request_id}, {"_id": 0, **{k: 1 for k in RECEIPT_PHOTO_KEYS}}
+        {"request_id": request_id}, {"_id": 0, "request_id": 1, **{k: 1 for k in RECEIPT_PHOTO_KEYS}}
     )
     if req is None:
         raise HTTPException(status_code=404, detail="Material request not found")
-    rc = await db.material_receipts.find_one(
-        {"request_id": request_id, "gps_latitude": {"$ne": None}, "gps_longitude": {"$ne": None}},
-        {"_id": 0, "gps_latitude": 1, "gps_longitude": 1},
-        sort=[("created_at", -1)],
-    )
-    photo_ids = [req[k] for k in RECEIPT_PHOTO_KEYS if req.get(k)]
-    uploaded_at = {}
-    if photo_ids:
-        async for f in db.files.find({"file_id": {"$in": photo_ids}}, {"_id": 0, "file_id": 1, "created_at": 1}):
-            if f.get("created_at"):
-                uploaded_at[f["file_id"]] = f["created_at"]
+    await _stamp_receipt_proof([req])
     return {
-        "receipt_gps_latitude": (rc or {}).get("gps_latitude"),
-        "receipt_gps_longitude": (rc or {}).get("gps_longitude"),
-        "photo_uploaded_at": uploaded_at,
+        "receipt_gps_latitude": req["receipt_gps_latitude"],
+        "receipt_gps_longitude": req["receipt_gps_longitude"],
+        "photo_uploaded_at": req["photo_uploaded_at"],
     }
 
 
@@ -4825,6 +4846,10 @@ async def procurement_simple_accountant_queue(user: User = Depends(get_current_u
     _bal_by_vendor = {v: round(b, 2) for v, b in zip(_vendors, _bals)}
     for r in rows:
         r["vendor_suspense_balance"] = _bal_by_vendor.get(r.get("vendor_name"), 0.0)
+    # Nov 2 2026 — when and where the Collected Photos were taken, shown
+    # under the photos on each card (same data Procurement's Verify Delivery
+    # shows, stamped here in one pass instead of one call per card).
+    await _stamp_receipt_proof(rows)
     return {"count": len(rows), "requests": rows}
 
 
