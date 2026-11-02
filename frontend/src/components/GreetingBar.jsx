@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import { X } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -9,7 +10,8 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // lunch for the rest of the day); No gets an angry face and the question
 // comes back in REMIND_MS. Always one row: phones get the short question and
 // the name truncates before anything wraps. Below it, HR's quote for today's
-// day of the month (HR Portal → Quote).
+// day of the month (HR Portal → Quote). The × hides the whole strip until
+// tomorrow.
 
 const MINUTE = 60 * 1000;
 const REMIND_MS = 15 * MINUTE;
@@ -38,10 +40,12 @@ const QUESTIONS = {
   water: { icon: '💧', text: 'Did you drink water?', short: 'Had water?', yes: 'Great, keep it up!', no: 'Go drink water now!' },
 };
 
+const tomorrow = (now) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+
 // When to ask again after a Yes.
 const nextAfterYes = {
   water: (now) => now.getTime() + 60 * MINUTE,
-  lunch: (now) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime(),
+  lunch: tomorrow,
 };
 
 const PERIOD_ICON = { Morning: '🌅', Afternoon: '☀️', Evening: '🌇' };
@@ -107,6 +111,8 @@ export default function GreetingBar({ user }) {
   const period = h < 12 ? 'Morning' : h < 15 ? 'Afternoon' : 'Evening';
   // Cookie-safe: user ids are letters, digits and _ ; emails get encoded.
   const uid = encodeURIComponent(user.user_id || user.email || user.name);
+  const closedKey = `mhu_greeting_${uid}`;
+  if (now.getTime() < Math.max(readNext(closedKey), answered[closedKey] || 0)) return null;
   const ids = h >= 12 && h < 15 ? ['lunch', 'water'] : ['water'];
   const pendingId = ids.find((id) => {
     const key = `mhu_${id}_${uid}`;
@@ -121,6 +127,12 @@ export default function GreetingBar({ user }) {
     writeNext(q.key, next);
     setAnswered((a) => ({ ...a, [q.key]: next }));
     setFeedback({ happy: yes, text: yes ? q.yes : q.no });
+  };
+
+  const close = () => {
+    const next = tomorrow(new Date());
+    writeNext(closedKey, next);
+    setAnswered((a) => ({ ...a, [closedKey]: next }));
   };
 
   // Desktop keeps the quote under the greeting, left of the question; phones
@@ -184,6 +196,16 @@ export default function GreetingBar({ user }) {
             {feedback.text}
           </span>
         )}
+        <button
+          type="button"
+          onClick={close}
+          className="ml-auto sm:ml-0 -mr-1 inline-flex h-6 w-6 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-amber-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-amber-900/40 dark:hover:text-gray-200"
+          aria-label="Close greeting"
+          title="Hide until tomorrow"
+          data-testid="greeting-close"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
       {quoteLine('sm:hidden')}
     </div>
