@@ -378,8 +378,35 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   <AccountsReceivedDate value={req.accounts_received_at} testId={`acc-mat-received-${req.request_id}`} />
                 </div>
                 {(() => {
+                  const actions = (
+                    <div className="flex justify-end items-center gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 border-gray-300 text-gray-500 hover:bg-gray-50"
+                        onClick={() => recalculateAmount(req)}
+                        disabled={recalculating === req.request_id}
+                        title="Recompute amount from received qty × unit price"
+                        data-testid={`acc-mat-recalc-${req.request_id}`}
+                      >
+                        <RefreshCw className={`h-3 w-3 ${recalculating === req.request_id ? 'animate-spin' : ''}`} /> Recalculate
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
+                        onClick={() => setRejectDialog({ open: true, exp: req, kind: 'request', reason: '', busy: false })}
+                        data-testid={`acc-mat-reject-${req.request_id}`}
+                      >
+                        <XCircle className="h-3 w-3" /> Reject
+                      </Button>
+                      <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
+                        <Wallet className="h-3 w-3" /> {req.partially_collected ? 'Release Payment' : ((req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`)}
+                      </Button>
+                    </div>
+                  );
                   const photos = collectionPhotos(req);
-                  if (!photos.length) return null;
+                  if (!photos.length) return <div className="mt-2">{actions}</div>;
                   // Nov 2 2026 — when each photo was uploaded and where the SE
                   // was (the receipt's GPS fix), so Accounts can check the
                   // delivery proof without going back to Procurement.
@@ -388,9 +415,11 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                   const lng = Number(req.receipt_gps_longitude);
                   return (
                     <div className="mt-2 space-y-1.5" data-testid={`acc-mat-photos-${req.request_id}`}>
+                      {/* Nov 2 2026 — Recalculate / Reject / Release sit at the
+                          right end of the photos row instead of a row of their own. */}
                       <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
-                        <span className="text-[10px] uppercase text-gray-400 font-semibold">Collected Photos:</span>
-                        <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+                        <span className="text-[10px] uppercase text-gray-400 font-semibold shrink-0">Collected Photos:</span>
+                        <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-1 sm:min-w-0 sm:flex-wrap sm:gap-2">
                           {photos.map((p, i) => (
                             <button
                               key={i}
@@ -423,6 +452,7 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                             </button>
                           ))}
                         </div>
+                        {actions}
                       </div>
                       <div className="flex items-center gap-1 flex-wrap text-[11px]" data-testid={`acc-mat-photo-location-${req.request_id}`}>
                         <span className="text-[10px] uppercase text-gray-400 font-semibold">Location:</span>
@@ -447,31 +477,6 @@ export default function AccountantMaterialPayments({ onRefresh, legacyExpenses =
                     </div>
                   );
                 })()}
-                <div className="flex justify-end items-center gap-2 mt-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs gap-1 border-gray-300 text-gray-500 hover:bg-gray-50"
-                    onClick={() => recalculateAmount(req)}
-                    disabled={recalculating === req.request_id}
-                    title="Recompute amount from received qty × unit price"
-                    data-testid={`acc-mat-recalc-${req.request_id}`}
-                  >
-                    <RefreshCw className={`h-3 w-3 ${recalculating === req.request_id ? 'animate-spin' : ''}`} /> Recalculate
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs gap-1 border-red-300 text-red-600 hover:bg-red-50"
-                    onClick={() => setRejectDialog({ open: true, exp: req, kind: 'request', reason: '', busy: false })}
-                    data-testid={`acc-mat-reject-${req.request_id}`}
-                  >
-                    <XCircle className="h-3 w-3" /> Reject
-                  </Button>
-                  <Button size="sm" className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openPayDialog(req)} data-testid={`acc-mat-release-${req.request_id}`}>
-                    <Wallet className="h-3 w-3" /> {req.partially_collected ? 'Release Payment' : ((req.status === 'partially_paid' || req.last_partial_paid_at) ? 'Pay Balance' : `Release ${phase === 'balance' ? 'Balance' : (phase === 'advance' ? 'Advance' : 'Payment')}`)}
-                  </Button>
-                </div>
               </CardContent>
             </Card>
             </div>
