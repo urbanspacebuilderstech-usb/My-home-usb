@@ -533,16 +533,16 @@ export default function SuspenseAccountPage() {
         </Card>
 
         {/* Summary */}
-        {/* Phones: Petty Cash full width with its figures 2×2, Material and Labour side by side. */}
+        {/* Phones: Petty Cash full width with its four figures in one row, Material and Labour side by side. */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 mb-5">
           <Card data-testid="petty-summary" className="col-span-2 md:col-span-1 border-l-4 border-l-amber-500 cursor-pointer" onClick={() => setActiveTab('petty_cash')}>
-            <CardContent className="p-4">
+            <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 mb-2"><Banknote className="h-4 w-4 text-amber-500" /><span className="text-sm font-bold text-gray-700">Petty Cash</span></div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2 gap-y-3 text-center">
-                <div><p className="text-[10px] text-gray-400">Issued</p><p className="text-sm font-bold text-amber-600">{fmt(petty.total_issued)}</p></div>
-                <div><p className="text-[10px] text-gray-400">A/C Approved</p><p className="text-sm font-bold text-blue-600">{fmt(petty.total_ac_approved || 0)}</p></div>
-                <div><p className="text-[10px] text-gray-400">Spent</p><p className="text-sm font-bold text-red-600">{fmt(petty.total_spent)}</p></div>
-                <div><p className="text-[10px] text-gray-400">Balance</p><p className="text-sm font-bold text-green-600">{fmt(petty.balance)}</p></div>
+              <div className="grid grid-cols-4 gap-1 sm:gap-2 text-center">
+                <div><p className="text-[10px] text-gray-400">Issued</p><p className="text-sm max-[359px]:text-xs font-bold text-amber-600">{fmt(petty.total_issued)}</p></div>
+                <div><p className="text-[10px] text-gray-400">A/C Approved</p><p className="text-sm max-[359px]:text-xs font-bold text-blue-600">{fmt(petty.total_ac_approved || 0)}</p></div>
+                <div><p className="text-[10px] text-gray-400">Spent</p><p className="text-sm max-[359px]:text-xs font-bold text-red-600">{fmt(petty.total_spent)}</p></div>
+                <div><p className="text-[10px] text-gray-400">Balance</p><p className="text-sm max-[359px]:text-xs font-bold text-green-600">{fmt(petty.balance)}</p></div>
               </div>
             </CardContent>
           </Card>
