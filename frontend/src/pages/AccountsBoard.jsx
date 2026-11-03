@@ -6591,7 +6591,9 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
       {/* Feb 22 2026 — Project Wise hero cards split into two grouped
           sections: Project Value Calculation (Scope + Additions − Deductions
           = Grand Total) and Financial Performance (Income / Expense /
-          Balance / Receivable). Replaces the legacy 3-card row. */}
+          Balance / Receivable). Replaces the legacy 3-card row.
+          Nov 3 2026 — each section's tiles sit two a row on phones; four
+          in a row cut the crore amounts off. */}
       {(() => {
         const sv = totals.scope_value || 0;
         const ad = totals.additions_total || 0;
@@ -6609,7 +6611,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
             <Card className="border-t-4 border-t-indigo-300 bg-indigo-50/30">
               <CardContent className="p-3">
                 <p className="text-[10px] uppercase tracking-wider text-indigo-700/80 font-bold mb-2">Project Value Calculation</p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <div className="bg-white rounded-md border border-blue-200 p-2.5 text-center" data-testid="pw-scope-value">
                     <p className="text-[10px] uppercase text-gray-500 font-semibold">Scope Value</p>
                     <p className="text-sm font-bold text-blue-700 mt-1 break-words"><MaskedValue value={sv} className="text-blue-700" testId="masked-scope" /></p>
@@ -6634,7 +6636,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
             <Card className="border-t-4 border-t-emerald-300 bg-emerald-50/30">
               <CardContent className="p-3">
                 <p className="text-[10px] uppercase tracking-wider text-emerald-700/80 font-bold mb-2">Financial Performance</p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <div className="bg-white rounded-md border border-emerald-200 p-2.5 text-center" data-testid="pw-total-income">
                     <p className="text-[10px] uppercase text-gray-500 font-semibold">Total Income</p>
                     <p className="text-sm font-bold text-emerald-700 mt-1 break-words"><MaskedValue value={ti} className="text-emerald-700" testId="masked-proj-income" /></p>
