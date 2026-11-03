@@ -533,11 +533,12 @@ export default function SuspenseAccountPage() {
         </Card>
 
         {/* Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-          <Card data-testid="petty-summary" className="border-l-4 border-l-amber-500 cursor-pointer" onClick={() => setActiveTab('petty_cash')}>
+        {/* Phones: Petty Cash full width with its figures 2×2, Material and Labour side by side. */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 mb-5">
+          <Card data-testid="petty-summary" className="col-span-2 md:col-span-1 border-l-4 border-l-amber-500 cursor-pointer" onClick={() => setActiveTab('petty_cash')}>
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2"><Banknote className="h-4 w-4 text-amber-500" /><span className="text-sm font-bold text-gray-700">Petty Cash</span></div>
-              <div className="grid grid-cols-4 gap-2 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2 gap-y-3 text-center">
                 <div><p className="text-[10px] text-gray-400">Issued</p><p className="text-sm font-bold text-amber-600">{fmt(petty.total_issued)}</p></div>
                 <div><p className="text-[10px] text-gray-400">A/C Approved</p><p className="text-sm font-bold text-blue-600">{fmt(petty.total_ac_approved || 0)}</p></div>
                 <div><p className="text-[10px] text-gray-400">Spent</p><p className="text-sm font-bold text-red-600">{fmt(petty.total_spent)}</p></div>
@@ -545,17 +546,17 @@ export default function SuspenseAccountPage() {
               </div>
             </CardContent>
           </Card>
-          <Card data-testid="material-summary" className="border-l-4 border-l-blue-500 cursor-pointer" onClick={() => setActiveTab('materials')}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2"><Package className="h-4 w-4 text-blue-500" /><span className="text-sm font-bold text-gray-700">Material Suspense</span></div>
-              <p className="text-2xl font-extrabold text-blue-700">{fmt(matSus.total)}</p>
+          <Card data-testid="material-summary" className="min-w-0 border-l-4 border-l-blue-500 cursor-pointer" onClick={() => setActiveTab('materials')}>
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 mb-2"><Package className="h-4 w-4 shrink-0 text-blue-500" /><span className="text-sm font-bold text-gray-700 leading-tight">Material Suspense</span></div>
+              <p className="text-xl sm:text-2xl font-extrabold text-blue-700">{fmt(matSus.total)}</p>
               <p className="text-xs text-gray-400">{(matSus.balances || []).length} vendors with balance</p>
             </CardContent>
           </Card>
-          <Card data-testid="labour-summary" className="border-l-4 border-l-purple-500 cursor-pointer" onClick={() => setActiveTab('labour')}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2"><Users className="h-4 w-4 text-purple-500" /><span className="text-sm font-bold text-gray-700">Labour Suspense</span></div>
-              <p className="text-2xl font-extrabold text-purple-700">{fmt(labSus.total)}</p>
+          <Card data-testid="labour-summary" className="min-w-0 border-l-4 border-l-purple-500 cursor-pointer" onClick={() => setActiveTab('labour')}>
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 mb-2"><Users className="h-4 w-4 shrink-0 text-purple-500" /><span className="text-sm font-bold text-gray-700 leading-tight">Labour Suspense</span></div>
+              <p className="text-xl sm:text-2xl font-extrabold text-purple-700">{fmt(labSus.total)}</p>
               <p className="text-xs text-gray-400">{(labSus.balances || []).length} contractors with balance</p>
             </CardContent>
           </Card>
