@@ -1585,13 +1585,15 @@ export default function CREBoard() {
                         sub: `${outstandingCount} outstanding`,
                         border: 'border-l-red-500', text: 'text-red-600' },
                     ];
+                    // Nov 3 2026 — two tiles a row on phones too; the amount
+                    // steps down a size below sm so crore figures fit a half-width tile.
                     return (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="ps-summary-tiles">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="ps-summary-tiles">
                         {tiles.map(t => (
-                          <Card key={t.key} className={`border-l-4 ${t.border}`} data-testid={`ps-summary-${t.key}`}>
+                          <Card key={t.key} className={`min-w-0 border-l-4 ${t.border}`} data-testid={`ps-summary-${t.key}`}>
                             <CardContent className="p-3">
                               <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wide">{t.label}</p>
-                              <p className={`text-xl font-bold ${t.text}`}>{t.value}</p>
+                              <p className={`text-base sm:text-xl font-bold break-words ${t.text}`}>{t.value}</p>
                               <p className="text-[10px] text-gray-400">{t.sub}</p>
                             </CardContent>
                           </Card>
