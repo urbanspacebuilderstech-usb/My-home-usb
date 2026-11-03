@@ -577,7 +577,7 @@ export default function SuperAdminDashboard() {
 
         <div className={`space-y-6 transition-opacity ${dLoading && loadedOnce ? 'opacity-60' : ''}`}>
           {/* ── KPI row ── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4" data-testid="dashboard-kpis">
+          <div className="grid grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-3 sm:gap-4" data-testid="dashboard-kpis">
             <KpiTile label="Income" icon={ArrowDownLeft} value={v(inrCompact(s.total_income))} sub={`${fmt(s.total_income)} · ${incomeRows.length} receipts`} onClick={() => open('income')} testId="dashboard-metric-income" />
             <KpiTile label="Expense" icon={ArrowUpRight} value={v(inrCompact(s.total_expense))} sub={`${fmt(s.total_expense)} · ${expenseRows.length} payments`} onClick={() => open('expense')} testId="dashboard-metric-expense" />
             <KpiTile

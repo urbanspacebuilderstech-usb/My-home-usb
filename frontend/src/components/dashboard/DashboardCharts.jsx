@@ -71,6 +71,7 @@ export function ChartTooltip({ active, payload, label, valueFormatter = inr, lab
 }
 
 // ── KPI tile ───────────────────────────────────────────────────────────
+// Phones show two tiles a row, so below sm the tile is tighter and the sub line wraps instead of truncating.
 export function KpiTile({ label, value, sub, icon: Icon, badge, onClick, testId, loading }) {
   return (
     <button
@@ -78,16 +79,16 @@ export function KpiTile({ label, value, sub, icon: Icon, badge, onClick, testId,
       onClick={onClick}
       data-testid={testId}
       title={`View ${label} details`}
-      className="group text-left rounded-xl border border-gray-200 bg-white p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+      className="group flex flex-col min-w-0 text-left rounded-xl border border-gray-200 bg-white p-3.5 sm:p-5 shadow-sm hover:shadow-md hover:border-gray-300 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-gray-500">{label}</span>
-        {Icon && <Icon className="h-5 w-5 text-gray-400 group-hover:text-amber-600" />}
+        <span className="text-sm font-medium text-gray-500 leading-5">{label}</span>
+        {Icon && <Icon className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 text-gray-400 group-hover:text-amber-600" />}
       </div>
-      <div className={`mt-2 text-[28px] leading-9 font-semibold text-gray-900 ${loading ? 'opacity-60' : ''}`}>{value}</div>
-      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+      <div className={`mt-1.5 sm:mt-2 text-2xl leading-8 sm:text-[28px] sm:leading-9 font-semibold text-gray-900 ${loading ? 'opacity-60' : ''}`}>{value}</div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:text-sm text-gray-500">
         {badge}
-        <span className="truncate">{sub}</span>
+        <span className="min-w-0 sm:truncate">{sub}</span>
       </div>
     </button>
   );
