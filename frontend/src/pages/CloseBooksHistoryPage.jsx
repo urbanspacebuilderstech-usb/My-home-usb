@@ -149,12 +149,12 @@ export default function CloseBooksHistoryPage() {
 
         <Card>
           <CardContent className="p-4 sm:p-6">
-            <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
               <Input
                 type="month"
                 value={month}
                 onChange={(e) => setMonth(e.target.value)}
-                className="h-9 w-44 text-sm"
+                className="h-9 w-full sm:w-44 text-sm"
                 data-testid="close-books-history-month"
               />
 
@@ -163,7 +163,7 @@ export default function CloseBooksHistoryPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-9 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    className="h-9 w-full sm:w-auto gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                     disabled={downloading}
                     data-testid="close-books-download-btn"
                   >
@@ -211,29 +211,71 @@ export default function CloseBooksHistoryPage() {
                 {days.map(d => {
                   const isOpen = expanded === d.date;
                   const varColor = d.total_variance === 0 ? 'text-emerald-700' : d.total_variance > 0 ? 'text-blue-700' : 'text-red-700';
+                  const varText = d.total_variance === 0 ? 'Matched' : `${d.total_variance > 0 ? 'Surplus' : 'Shortfall'} ${fmtInr(Math.abs(d.total_variance))}`;
+                  const modes = MODE_ORDER.filter(m => d.modes[m]);
                   return (
                     <div key={d.date} className="border rounded-lg overflow-hidden" data-testid={`close-books-day-${d.date}`}>
                       <button
                         type="button"
                         onClick={() => setExpanded(isOpen ? null : d.date)}
-                        className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+                        className="w-full flex items-start sm:items-center gap-2 px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
                         data-testid={`close-books-day-toggle-${d.date}`}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          {isOpen ? <ChevronUp className="h-4 w-4 text-gray-400 shrink-0" /> : <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />}
-                          <span className="font-semibold text-sm">{d.date}</span>
-                          <span className="text-xs text-gray-500 truncate">Closed by {d.closed_by_name || '—'}</span>
+                        {isOpen ? <ChevronUp className="h-4 w-4 mt-0.5 sm:mt-0 text-gray-400 shrink-0" /> : <ChevronDown className="h-4 w-4 mt-0.5 sm:mt-0 text-gray-400 shrink-0" />}
+                        {/* Phones: date and result on top, closer and actual below, so nothing gets cut off. */}
+                        <div className="sm:hidden flex-1 min-w-0 space-y-0.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-sm whitespace-nowrap">{d.date}</span>
+                            <span className={`text-xs font-semibold whitespace-nowrap ${varColor}`}>{varText}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                            <span className="truncate">Closed by {d.closed_by_name || '—'}</span>
+                            <span className="shrink-0">Actual: <strong className="text-gray-800">{fmtInr(d.total_actual)}</strong></span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 text-xs shrink-0">
-                          <span className="text-gray-500">Actual: <strong className="text-gray-800">{fmtInr(d.total_actual)}</strong></span>
-                          <span className={`font-semibold ${varColor}`}>
-                            {d.total_variance === 0 ? 'Matched' : `${d.total_variance > 0 ? 'Surplus' : 'Shortfall'} ${fmtInr(Math.abs(d.total_variance))}`}
-                          </span>
+                        <div className="hidden sm:flex flex-1 min-w-0 items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-semibold text-sm">{d.date}</span>
+                            <span className="text-xs text-gray-500 truncate">Closed by {d.closed_by_name || '—'}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs shrink-0">
+                            <span className="text-gray-500">Actual: <strong className="text-gray-800">{fmtInr(d.total_actual)}</strong></span>
+                            <span className={`font-semibold ${varColor}`}>{varText}</span>
+                          </div>
                         </div>
                       </button>
 
                       {isOpen && (
-                        <div className="p-3 border-t overflow-x-auto">
+                        <div className="sm:hidden px-3 border-t divide-y" data-testid={`close-books-cards-${d.date}`}>
+                          {modes.map(m => {
+                            const row = d.modes[m];
+                            const v = Number(row.variance || 0);
+                            return (
+                              <div key={m} className="py-2.5 text-xs" data-testid={`close-books-card-${d.date}-${m}`}>
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <span className="font-semibold text-sm">{MODE_LABELS[m] || m}</span>
+                                  {row.reopened ? (
+                                    <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">Re-opened</Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Closed</Badge>
+                                  )}
+                                </div>
+                                <div className="flex justify-between gap-2"><span className="text-gray-400">Computed</span><span>{fmtInr(row.computed_balance)}</span></div>
+                                <div className="flex justify-between gap-2"><span className="text-gray-400">Actual</span><span>{fmtInr(row.actual_balance)}</span></div>
+                                <div className="flex justify-between gap-2">
+                                  <span className="text-gray-400">Variance</span>
+                                  <span className={`font-semibold ${v === 0 ? 'text-emerald-700' : v > 0 ? 'text-blue-700' : 'text-red-700'}`}>
+                                    {v === 0 ? '—' : `${v > 0 ? '+' : ''}${fmtInr(v)}`}
+                                  </span>
+                                </div>
+                                {row.remark && <p className="mt-1 text-gray-500 italic break-words">{row.remark}</p>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {isOpen && (
+                        <div className="hidden sm:block p-3 border-t overflow-x-auto">
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="text-left text-gray-400 uppercase text-[10px]">
@@ -246,7 +288,7 @@ export default function CloseBooksHistoryPage() {
                               </tr>
                             </thead>
                             <tbody className="divide-y">
-                              {MODE_ORDER.filter(m => d.modes[m]).map(m => {
+                              {modes.map(m => {
                                 const row = d.modes[m];
                                 const v = Number(row.variance || 0);
                                 return (
