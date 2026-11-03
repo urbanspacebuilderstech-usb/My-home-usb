@@ -83,6 +83,20 @@ const PAYMENT_MODES = [
   { value: 'direct_transfer', label: 'Direct Transfer (DT)' }
 ];
 
+// Payment Schedule > Payment Mode filter. Same names the Collect dialog
+// (MultiPaymentInput) shows, plus older modes still on past collections.
+const PS_MODE_LABELS = {
+  savings_account: 'HDFC SAVINGS',
+  current_account: 'HDFC CURRENT',
+  direct_transfer: 'CASH D/T',
+  cash: 'Cash',
+  cheque: 'Cheque',
+  escrow: 'Escrow',
+  bank_transfer: 'Bank Transfer',
+  credit_card: 'Credit Card',
+};
+const psModeLabel = (m) => PS_MODE_LABELS[m] || String(m).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
 export default function CREBoard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -238,6 +252,7 @@ export default function CREBoard() {
   const [psSubTab, setPsSubTab] = useState('pending'); // pending | partial | collected | all
   // Payment Schedule local quick filters (extra to the global date filter)
   const [psSearch, setPsSearch] = useState('');
+  const [psMode, setPsMode] = useState('all'); // payment mode of the stage's collections
   const [psDateFrom, setPsDateFrom] = useState('');
   const [psDateTo, setPsDateTo] = useState('');
 
@@ -1324,8 +1339,16 @@ export default function CREBoard() {
                   const hay = `${e.project_name || ''} ${e.client_name || ''} ${e.stage_name || ''} ${e.stage_label || ''}`.toLowerCase();
                   if (!hay.includes(psSearchTerm)) return false;
                 }
+                // Nov 3 2026 — a stage collected in several modes matches each.
+                if (psMode !== 'all' && !(e.payment_modes || []).includes(psMode)) return false;
                 return true;
               });
+              // Modes on the rows in scope, so the filter never offers one
+              // with nothing behind it (the chosen one always stays listed).
+              const psModeOptions = [...new Set([
+                ...collectibleEntries.flatMap(e => e.payment_modes || []),
+                ...(psMode !== 'all' ? [psMode] : []),
+              ])].sort((a, b) => psModeLabel(a).localeCompare(psModeLabel(b)));
               // Oct 5 2026 — a single month's rows carry that month's own
               // figures: month_amount is what was still due when the month
               // began (a stage part-paid last month shows only its carried
@@ -1628,6 +1651,23 @@ export default function CREBoard() {
                           className="h-8 w-full sm:w-56 pl-7 pr-2 text-xs border border-gray-200 rounded bg-white dark:bg-gray-800 dark:border-gray-700"
                           data-testid="ps-search"
                         />
+                      </div>
+                      {/* Payment mode filter — by how the stage was collected */}
+                      <div className="w-full sm:w-auto">
+                        <Select value={psMode} onValueChange={setPsMode}>
+                          <SelectTrigger
+                            className={`h-8 w-full sm:w-44 text-xs ${psMode !== 'all' ? 'border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200' : 'bg-white dark:bg-gray-800'}`}
+                            data-testid="ps-mode-filter"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All payment modes</SelectItem>
+                            {psModeOptions.map(m => (
+                              <SelectItem key={m} value={m} data-testid={`ps-mode-${m}`}>{psModeLabel(m)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                     {/* Delete Selected — only renders when at least one row is checked. */}

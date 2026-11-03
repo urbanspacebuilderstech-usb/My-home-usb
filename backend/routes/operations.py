@@ -2020,6 +2020,7 @@ async def get_monthly_schedule(
         "is_addition": 1, "is_section_addition": 1, "linked_addition_id": 1,
         "contractor_id": 1, "vendor_id": 1, "rab_number": 1, "rab_request_id": 1,
         "accountant_rejection_reason": 1, "accountant_rejected_at": 1, "accountant_rejected_by_name": 1,
+        "payment_mode": 1,
     }
     MANUAL_FIELDS = {
         "_id": 0, "entry_id": 1, "stage_id": 1, "month": 1, "year": 1,
@@ -2153,15 +2154,25 @@ async def get_monthly_schedule(
     # stage_id -> [((year, month), amount)] of its counted incomes, for
     # `split_by_month`. Same rows and same exclusions as the heal below.
     receipts_by_stage: Dict[str, List[Any]] = {}
+    # Nov 3 2026 — stage_id -> payment modes of its collections, for the CRE
+    # Payment Schedule's Payment Mode filter. One income row per payment line,
+    # so a stage paid part cash, part cheque has both. Collections awaiting
+    # approval count (the CRE did collect them that way); rejected, bounced
+    # and sent-back ones do not.
+    modes_by_stage: Dict[str, set] = {}
+    NO_MODE_INC_STATUSES = EXCLUDED_INC_STATUSES - {"pending_approval"}
     if _stage_ids_for_heal:
         _income_rows_for_heal = await db.income.find(
             {"payment_stage_id": {"$in": _stage_ids_for_heal}},
             {"_id": 0, "payment_stage_id": 1, "amount": 1, "status": 1,
-             "payment_date": 1, "received_date": 1, "created_at": 1},
+             "payment_date": 1, "received_date": 1, "created_at": 1, "payment_mode": 1},
         ).to_list(20000)
         _received_by_stage: Dict[str, float] = {}
         for _inc in _income_rows_for_heal:
-            if (_inc.get("status") or "approved") in EXCLUDED_INC_STATUSES:
+            _status = _inc.get("status") or "approved"
+            if _inc.get("payment_mode") and _status not in NO_MODE_INC_STATUSES:
+                modes_by_stage.setdefault(_inc.get("payment_stage_id"), set()).add(_inc["payment_mode"])
+            if _status in EXCLUDED_INC_STATUSES:
                 continue
             _sid = _inc.get("payment_stage_id")
             _received_by_stage[_sid] = _received_by_stage.get(_sid, 0.0) + float(_inc.get("amount") or 0)
@@ -2556,6 +2567,11 @@ async def get_monthly_schedule(
                        or _parse_date(stage.get("due_date")))
             if _coll_d:
                 _coll_month, _coll_year = _coll_d.month, _coll_d.year
+        _modes = modes_by_stage.get(stage.get("stage_id")) or set()
+        if not _modes and disp_received > 0 and stage.get("payment_mode"):
+            # Older collections with no linked income rows: the stage keeps
+            # the mode of its last collection.
+            _modes = {stage["payment_mode"]}
         row = {
             "entry_id": f"{entry_id_base}{virtual_suffix}" if virtual_suffix else entry_id_base,
             "stage_id": stage.get("stage_id"),
@@ -2576,6 +2592,7 @@ async def get_monthly_schedule(
             "balance_due": disp_balance,
             "pending_approval_amount": pending["total"] if virtual_kind != "collected_portion" else 0,
             "pending_approval_count": pending["count"] if virtual_kind != "collected_portion" else 0,
+            "payment_modes": sorted(_modes),
             "stage_status": row_stage_status,
             "workflow_status": stage.get("workflow_status", "approved"),
             # Set while an Accountant-rejected collection is waiting for CRE to
