@@ -6182,7 +6182,9 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
           </div>
         </CardContent>
       </Card>
-      <div className="flex gap-1.5 sm:gap-3 overflow-x-auto" data-testid="pw-pettycash-tiles">
+      {/* Nov 3 2026 — tiles sit two a row on phones; four in a row cut the
+          lakh amounts off. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3" data-testid="pw-pettycash-tiles">
         {[
           { key: 'issued', label: 'Issued', value: pcTotals.issued, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
           { key: 'approved', label: 'A/C Approved', value: pcTotals.approved, cls: 'bg-sky-50 border-sky-200 text-sky-700' },
@@ -6192,10 +6194,10 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
           <div
             key={p.key}
             data-testid={`pw-pettycash-tile-${p.key}`}
-            className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}
+            className={`min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${p.cls}`}
           >
-            <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
-            <span className="text-base sm:text-2xl font-bold mt-0.5">{fmtFull(p.value)}</span>
+            <span className="text-[10px] sm:text-xs font-medium text-center leading-tight">{p.label}</span>
+            <span className="text-lg sm:text-2xl font-bold mt-0.5">{fmtFull(p.value)}</span>
           </div>
         ))}
       </div>
