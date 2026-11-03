@@ -105,6 +105,56 @@ export default function AccountantLabourPayments() {
     return items.filter(it => it.project_id === projectFilter);
   }, [items, projectFilter]);
 
+  // Shared by the desktop table and the phone cards.
+  const statusBadge = (r) => (r.status === 'approved' ? (
+    <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Released</Badge>
+  ) : (
+    <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
+  ));
+  const rabBadges = (r) => (
+    <>
+      <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-200 font-mono">{r.rab_number}</Badge>
+      {r.is_multi_stage && (
+        <Badge variant="outline" className="text-[9px] bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 font-semibold uppercase">
+          {r.stage_breakdown.length}-stage bill
+        </Badge>
+      )}
+    </>
+  );
+  // `wrap` lets long stage names run onto more lines on phones instead of truncating.
+  const stageDetail = (r, wrap = false) => (r.is_multi_stage ? (
+    <div className="space-y-0.5">
+      {r.stage_breakdown.map((sb, i) => {
+        const isReleased = sb.status === 'approved';
+        return (
+          <div key={sb.request_id} className={`flex ${wrap ? 'items-start' : 'items-center'} gap-1 text-[11px]`}>
+            <span className="text-[9px] font-bold text-fuchsia-600 bg-fuchsia-50 rounded px-1">{i + 1}</span>
+            <span className={wrap ? 'min-w-0 break-words' : 'truncate'} title={sb.stage_name}>{sb.stage_name}</span>
+            <Badge variant="outline" className={`text-[9px] ml-1 ${isReleased ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+              {isReleased ? 'Released' : 'Pending'}
+            </Badge>
+            <span className={`ml-auto font-semibold whitespace-nowrap ${isReleased ? 'text-gray-400 line-through' : 'text-emerald-700'}`}>{fmt(sb.amount)}</span>
+          </div>
+        );
+      })}
+    </div>
+  ) : (
+    r.stage_name
+  ));
+  const toReleaseNote = (r) => r.is_multi_stage && r.bill_total !== r.pending_amount && r.pending_amount > 0 && (
+    <p className="text-[9px] text-amber-600 font-normal italic mt-0.5">
+      ₹{(r.pending_amount || 0).toLocaleString('en-IN')} to release
+    </p>
+  );
+  const actionButton = (r, testId) => (
+    <Button size="sm" className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700" onClick={() => setOpen(r)} data-testid={testId}>
+      {r.status === 'planning_approved' ? <><Send className="h-3 w-3" /> Release</> : <>View</>}
+    </Button>
+  );
+  const singleReleaseNote = (r) => r.is_multi_stage && r.status === 'planning_approved' && (
+    <p className="text-[9px] text-fuchsia-600 mt-0.5 italic">single release · {r.stage_breakdown.length} stages</p>
+  );
+
   return (
     <div className="space-y-3" data-testid="accountant-labour-payments">
       <div className="flex items-end justify-between gap-2 flex-wrap border-b bg-white rounded-t-lg px-2 pt-1">
@@ -147,7 +197,44 @@ export default function AccountantLabourPayments() {
           {loading ? <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
           : visibleItems.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No {tab === 'pending' ? 'pending' : tab === 'released' ? 'released' : ''} payments{projectFilter !== 'all' ? ' for this project' : ''}</p>
           : (
-            <div className="overflow-x-auto">
+            <>
+            {/* Nov 3 2026 — phones and tablets get one card per bill; the
+                8-column table only fits from lg up. */}
+            <div className="lg:hidden divide-y border-t" data-testid="alp-cards">
+              {visibleItems.map(r => (
+                <div key={r.request_id} className="p-3 space-y-1.5 text-xs" data-testid={`alp-card-${r.request_id}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-gray-900 break-words">{r.contractor_name}</p>
+                      <p className="text-[10px] text-gray-500">{r.contractor_type}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-sm text-amber-700">{fmt(r.amount)}</p>
+                      {toReleaseNote(r)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-gray-700 mr-0.5">{r.project_name}</span>
+                    {r.rab_number && rabBadges(r)}
+                    {statusBadge(r)}
+                  </div>
+                  <div className="text-gray-700 break-words">{stageDetail(r, true)}</div>
+                  <div className="flex items-end justify-between gap-3 pt-0.5">
+                    <div className="text-[11px] text-gray-500 space-y-0.5 min-w-0">
+                      <p data-testid={`alp-card-received-${r.request_id}`}>
+                        A/C Received: <span className={formatAccountsReceived(r.accounts_received_at) ? 'text-gray-700' : 'text-gray-400'}>{formatAccountsReceived(r.accounts_received_at) || '—'}</span>
+                      </p>
+                      <p>Suspense: <span className="font-semibold text-amber-600">{fmt(r.suspense_balance)}</span></p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {actionButton(r, `alp-card-open-${r.request_id}`)}
+                      {singleReleaseNote(r)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="bg-gray-100 border-y">
                   <tr>
@@ -172,42 +259,15 @@ export default function AccountantLabourPayments() {
                         <p>{r.project_name}</p>
                         {r.rab_number && (
                           <div className="flex items-center gap-1 mt-0.5">
-                            <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-200 font-mono">{r.rab_number}</Badge>
-                            {r.is_multi_stage && (
-                              <Badge variant="outline" className="text-[9px] bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 font-semibold uppercase">
-                                {r.stage_breakdown.length}-stage bill
-                              </Badge>
-                            )}
+                            {rabBadges(r)}
                           </div>
                         )}
                       </td>
                       <td className="px-3 py-2 text-gray-700">
-                        {r.is_multi_stage ? (
-                          <div className="space-y-0.5">
-                            {r.stage_breakdown.map((sb, i) => {
-                              const isReleased = sb.status === 'approved';
-                              return (
-                                <div key={sb.request_id} className="flex items-center gap-1 text-[11px]">
-                                  <span className="text-[9px] font-bold text-fuchsia-600 bg-fuchsia-50 rounded px-1">{i + 1}</span>
-                                  <span className="truncate" title={sb.stage_name}>{sb.stage_name}</span>
-                                  <Badge variant="outline" className={`text-[9px] ml-1 ${isReleased ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                                    {isReleased ? 'Released' : 'Pending'}
-                                  </Badge>
-                                  <span className={`ml-auto font-semibold ${isReleased ? 'text-gray-400 line-through' : 'text-emerald-700'}`}>{fmt(sb.amount)}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          r.stage_name
-                        )}
+                        {stageDetail(r)}
                       </td>
                       <td className="px-3 py-2">
-                        {r.status === 'approved' ? (
-                          <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">Released</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
-                        )}
+                        {statusBadge(r)}
                       </td>
                       <td
                         className={`px-3 py-2 whitespace-nowrap ${formatAccountsReceived(r.accounts_received_at) ? 'text-gray-700' : 'text-gray-400'}`}
@@ -218,26 +278,19 @@ export default function AccountantLabourPayments() {
                       </td>
                       <td className="px-3 py-2 text-right font-bold text-amber-700">
                         {fmt(r.amount)}
-                        {r.is_multi_stage && r.bill_total !== r.pending_amount && r.pending_amount > 0 && (
-                          <p className="text-[9px] text-amber-600 font-normal italic mt-0.5">
-                            ₹{(r.pending_amount || 0).toLocaleString('en-IN')} to release
-                          </p>
-                        )}
+                        {toReleaseNote(r)}
                       </td>
                       <td className="px-3 py-2 text-right font-bold text-amber-600">{fmt(r.suspense_balance)}</td>
                       <td className="px-3 py-2 text-right">
-                        <Button size="sm" className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700" onClick={() => setOpen(r)} data-testid={`alp-open-${r.request_id}`}>
-                          {r.status === 'planning_approved' ? <><Send className="h-3 w-3" /> Release</> : <>View</>}
-                        </Button>
-                        {r.is_multi_stage && r.status === 'planning_approved' && (
-                          <p className="text-[9px] text-fuchsia-600 mt-0.5 italic">single release · {r.stage_breakdown.length} stages</p>
-                        )}
+                        {actionButton(r, `alp-open-${r.request_id}`)}
+                        {singleReleaseNote(r)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>

@@ -166,7 +166,7 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
 
   return (
     <Dialog open={!!item} onOpenChange={(v) => { if (!v && !submitting) onClose(); }}>
-      <DialogContent className="max-w-[96vw] sm:max-w-3xl max-h-[92vh] overflow-y-auto" data-testid="rab-release-dialog-v3">
+      <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 sm:max-w-3xl max-h-[92vh] overflow-y-auto" data-testid="rab-release-dialog-v3">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-emerald-700">
             <Wallet className="h-5 w-5" /> Release Payment
