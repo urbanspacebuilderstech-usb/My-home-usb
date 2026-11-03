@@ -6202,7 +6202,46 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
         ))}
       </div>
       <Card>
-        <CardContent className="p-0 overflow-x-auto">
+        <CardContent className="p-0">
+          {/* Nov 3 2026 — phones get one card per project instead of the
+              7-column table, as on the Labour tab; tapping a card opens the
+              same entries popup. The tiles above already carry the totals. */}
+          <div className="md:hidden divide-y" data-testid="pw-pettycash-cards">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No petty cash entries in this period'}</p>
+            ) : filtered.map((r, idx) => (
+              <div
+                key={r.project_id}
+                role="button"
+                tabIndex={0}
+                className="px-3 py-3 space-y-2 cursor-pointer hover:bg-amber-50 focus:outline-none focus-visible:bg-amber-50"
+                onClick={() => setViewProject(r)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewProject(r); } }}
+                data-testid={`pw-pettycash-card-${idx}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 text-sm font-medium text-gray-900 break-words">
+                    <span className="mr-1 text-xs text-gray-400">{idx + 1}.</span>{r.project_name}
+                  </p>
+                  <span className="shrink-0 inline-flex items-center gap-1 text-xs text-gray-500"><Eye className="h-3.5 w-3.5" /> View</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {[
+                    ['Issued', r.issued, 'bg-indigo-50/60 text-indigo-700'],
+                    ['A/C Approved', r.approved, 'bg-sky-50/60 text-sky-700'],
+                    ['Spent', r.spent, 'bg-red-50/60 text-red-700'],
+                    ['Balance', r.balance, 'bg-emerald-50/60 text-emerald-700'],
+                  ].map(([label, value, cls]) => (
+                    <div key={label} className={`rounded-md px-2 py-1.5 ${cls}`}>
+                      <p className="text-[10px] uppercase text-gray-500">{label}</p>
+                      <p className="font-semibold break-words">{fmtFull(value)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm" data-testid="pw-pettycash-table">
             <thead className="bg-gray-50 border-y">
               <tr>
@@ -6245,20 +6284,38 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
               </tr>
             </tfoot>
           </table>
+          </div>
         </CardContent>
       </Card>
 
       <Dialog open={!!viewProject} onOpenChange={(o) => !o && setViewProject(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="pw-pettycash-detail-dialog">
-          <DialogHeader>
-            <DialogTitle>{viewProject?.project_name} — Petty Cash Entries</DialogTitle>
+        <DialogContent className="w-[calc(100%-1.5rem)] rounded-xl sm:rounded-lg p-4 sm:p-6 max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="pw-pettycash-detail-dialog">
+          <DialogHeader className="text-left">
+            <DialogTitle className="pr-6 text-base sm:text-lg leading-snug">{viewProject?.project_name} — Petty Cash Entries</DialogTitle>
           </DialogHeader>
           {/* Oct 6 2026 — which petty cash requests make up this row, and how
               much of each was issued / spent here. */}
           {(viewProject?.requests || []).length > 0 && (
             <div className="overflow-x-auto" data-testid="pw-pettycash-detail-requests">
               <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1">From petty cash requests</p>
-              <table className="w-full text-xs">
+              {/* Nov 3 2026 — phones list each request instead of the 6-column table. */}
+              <div className="sm:hidden divide-y border-y">
+                {viewProject.requests.map((piece, i) => (
+                  <div key={`${piece.pc.petty_cash_id || i}-${i}`} className="py-2 text-xs space-y-1">
+                    <div className="flex items-start justify-between gap-2 text-gray-500">
+                      <span className="min-w-0 break-words">{piece.pc.requested_by_name || '—'}</span>
+                      <span className="shrink-0">{piece.pc.created_at ? new Date(piece.pc.created_at).toLocaleDateString('en-GB') : '—'}</span>
+                    </div>
+                    <p className="text-gray-700 break-words">{piece.pc.purpose || '—'}</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div><p className="text-[10px] uppercase text-gray-400">Issued</p><p className="text-indigo-700">{fmtFull(piece.issued)}</p></div>
+                      <div><p className="text-[10px] uppercase text-gray-400">Spent</p><p className="text-red-700">{fmtFull(piece.spent)}</p></div>
+                      <div><p className="text-[10px] uppercase text-gray-400">Balance</p><p className="font-semibold text-emerald-700">{fmtFull(piece.issued - piece.spent)}</p></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <table className="hidden sm:table w-full text-xs">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
@@ -6287,7 +6344,21 @@ function ProjectWisePettyCashTab({ expenseEntries, pettyCashRows, loading, dateF
           {(viewProject?.rows || []).length > 0 && (
           <div className="overflow-x-auto">
             <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1">Cashbook entries</p>
-            <table className="w-full text-xs">
+            <div className="sm:hidden divide-y border-y">
+              {(viewProject?.rows || []).map((e, i) => (
+                <div key={e.expense_id || i} className="py-2 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="min-w-0 text-gray-700 break-words">{e.description || e.vendor_name || '—'}</p>
+                    <span className="shrink-0 font-semibold text-red-700">{fmtFull(e.amount)}</span>
+                  </div>
+                  <p className="mt-0.5 text-gray-500">
+                    {e.created_at ? new Date(e.created_at).toLocaleDateString('en-GB') : '—'}
+                    {(e.payment_method || e.payment_mode) ? ` · ${(e.payment_method || e.payment_mode).replace(/_/g, ' ')}` : ''}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <table className="hidden sm:table w-full text-xs">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="px-2 py-1.5 text-left text-[10px] font-semibold text-gray-500 uppercase">Date</th>
