@@ -5897,21 +5897,62 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
           </div>
         </CardContent>
       </Card>
-      <div className="flex gap-1.5 sm:gap-3 overflow-x-auto" data-testid="pw-labour-tiles">
+      {/* Nov 3 2026 — tiles sit two a row on phones; four in a row squeezed
+          the crore amounts. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3" data-testid="pw-labour-tiles">
         {tiles.map(t => (
           <div
             key={t.key}
             data-testid={`pw-labour-tile-${t.key}`}
-            className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${t.cls}`}
+            className={`min-w-0 flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-5 shadow-sm border ${t.cls}`}
           >
-            <span className="text-[9px] sm:text-xs font-medium text-center leading-tight">{t.label}</span>
-            <span className="text-base sm:text-2xl font-bold mt-0.5">{t.value}</span>
-            <span className="text-[9px] sm:text-[11px] opacity-75 text-center leading-tight mt-0.5">{t.sub}</span>
+            <span className="text-[10px] sm:text-xs font-medium text-center leading-tight">{t.label}</span>
+            <span className="text-lg sm:text-2xl font-bold mt-0.5">{t.value}</span>
+            <span className="text-[10px] sm:text-[11px] opacity-75 text-center leading-tight mt-0.5">{t.sub}</span>
           </div>
         ))}
       </div>
       <Card>
-        <CardContent className="p-0 overflow-x-auto">
+        <CardContent className="p-0">
+          {/* Nov 3 2026 — phones get one card per project instead of the
+              7-column table; tapping a card opens the same detail popup. The
+              tiles above already carry the totals, so no Total card. */}
+          <div className="md:hidden divide-y" data-testid="pw-labour-cards">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No data'}</p>
+            ) : filtered.map((r, idx) => (
+              <div
+                key={r.project_id}
+                role="button"
+                tabIndex={0}
+                className="px-3 py-3 space-y-2 cursor-pointer hover:bg-amber-50 focus:outline-none focus-visible:bg-amber-50"
+                onClick={() => setDetailProject(r)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailProject(r); } }}
+                data-testid={`pw-labour-card-${idx}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 text-sm font-medium text-amber-700 break-words">
+                    <span className="mr-1 text-xs text-gray-400">{idx + 1}.</span>{r.project_name}
+                  </p>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[10px] uppercase text-gray-400">Workers</p>
+                    <p className="text-sm font-semibold text-gray-900">{r.total_workers || 0}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-md bg-blue-50/60 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-gray-500">Skilled · {r.skilled_count || 0}</p>
+                    <p className="font-medium text-blue-700 break-words">{fmtFull(r.skilled_amount)}</p>
+                  </div>
+                  <div className="rounded-md bg-amber-50/60 px-2 py-1.5">
+                    <p className="text-[10px] uppercase text-gray-500">Unskilled · {r.unskilled_count || 0}</p>
+                    <p className="font-medium text-amber-700 break-words">{fmtFull(r.unskilled_amount)}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm" data-testid="pw-labour-table">
             <thead className="bg-gray-50 border-y">
               <tr>
@@ -5958,6 +5999,7 @@ function ProjectWiseLabourTab({ dateFrom, dateTo, setDateFrom, setDateTo }) {
               </tr>
             </tfoot>
           </table>
+          </div>
         </CardContent>
       </Card>
       <ProjectLabourDetailDialog
@@ -6325,8 +6367,10 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
   // doesn't reset "respective to the date filter". Material is Planning's
   // Inventory dashboard and keeps its own Today→Today range (Oct 6 2026).
   const [pwSubTab, setPwSubTab] = useState('overview');
+  // Nov 3 2026 — on phones the bar scrolls sideways; five tabs don't fit
+  // and "Petty Cash" broke onto two lines.
   const pwSubTabBar = (
-    <div className="flex items-center gap-1 border-b mb-1" data-testid="project-wise-subtabs">
+    <div className="flex items-center gap-1 border-b mb-1 pb-px overflow-x-auto overflow-y-hidden scrollbar-hide" data-testid="project-wise-subtabs">
       {[
         { k: 'overview', label: 'Overview' },
         { k: 'material', label: 'Material' },
@@ -6338,7 +6382,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
           key={t.k}
           onClick={() => setPwSubTab(t.k)}
           data-testid={`pw-subtab-${t.k}`}
-          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+          className={`shrink-0 whitespace-nowrap px-2.5 sm:px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
             pwSubTab === t.k ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
