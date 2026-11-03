@@ -354,6 +354,11 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
 .scrollbar-hide { scrollbar-width: none; }
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 
+/* Nov 3 2026 — Leaflet's panes (z-index 400) and controls (1000) stacked
+ * against the whole page, so a map covered the phone More drawer (z-60),
+ * the bottom bar and popups. Keep every map's layers inside its own box. */
+.leaflet-container { isolation: isolate; }
+
 /* Below the desktop layout, tab strips scroll sideways instead of widening
  * the whole page past the screen. */
 @media (max-width: 1023px) {

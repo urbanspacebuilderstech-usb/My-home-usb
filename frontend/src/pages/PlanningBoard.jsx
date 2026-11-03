@@ -119,11 +119,11 @@ function LiveMapSection() {
   return (
     <Card data-testid="live-map-card">
       <CardHeader className="p-4 pb-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base flex items-center gap-2">
             <Radio className="h-4 w-4 text-green-500" /> Live Site Engineer Map
           </CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="text-xs" data-testid="active-count">
               <span className="w-2 h-2 rounded-full bg-green-500 inline-block mr-1 animate-pulse"></span>
               {data?.total_active || 0} Active
