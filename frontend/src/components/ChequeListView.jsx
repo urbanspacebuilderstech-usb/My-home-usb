@@ -357,14 +357,17 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
         <SummaryCard color="blue"    label="Awaiting CRE" amount={stats.open_requested_amount}  count={stats.open_requested_count} onClick={() => setActiveTab('open_requested')} isActive={activeTab === 'open_requested'} testId="summary-awaiting" />
         <SummaryCard color="emerald" label="Opened"       amount={stats.opened_amount}          count={stats.opened_count}         onClick={() => setActiveTab('opened')}         isActive={activeTab === 'opened'}         testId="summary-opened" />
         <SummaryCard color="orange"  label="Issued"       amount={stats.issued_amount}          count={stats.issued_count}         onClick={() => setActiveTab('issued')}         isActive={activeTab === 'issued'}         testId="summary-issued" />
-        <SummaryCard color="red"     label="Bounced"      amount={stats.bounced_amount}         count={stats.bounced_count}        onClick={() => setActiveTab('bounced')}        isActive={activeTab === 'bounced'}        testId="summary-bounced" />
+        {/* The fifth tile spans the row on phones instead of sitting alone at half width. */}
+        <SummaryCard color="red"     label="Bounced"      amount={stats.bounced_amount}         count={stats.bounced_count}        onClick={() => setActiveTab('bounced')}        isActive={activeTab === 'bounced'}        testId="summary-bounced" className="col-span-2 md:col-span-1" />
       </div>
 
       {/* Filter Bar */}
       <Card>
         <CardContent className="p-3">
           <div className="flex flex-wrap gap-2 items-center">
-            <div className="inline-flex bg-gray-100 rounded-lg p-0.5 flex-wrap">
+            {/* Nov 4 2026 — phones: the status chips sit in a 4-column grid
+                (label over count) instead of wrapping into ragged rows. */}
+            <div className="grid grid-cols-4 w-full gap-0.5 sm:w-auto sm:inline-flex sm:flex-wrap bg-gray-100 rounded-lg p-0.5">
               {[
                 { k: 'all',            label: 'All',          count: stats.total,                badgeColor: 'bg-red-500 text-white' },
                 { k: 'received',       label: 'Received',     count: stats.pending_open,         badgeColor: 'bg-red-500 text-white' },
@@ -378,7 +381,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 <button
                   key={t.k}
                   onClick={() => setActiveTab(t.k)}
-                  className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5 ${activeTab === t.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'} ${t.k === 'bounced' && activeTab !== t.k ? 'text-red-600 hover:text-red-700' : ''}`}
+                  className={`relative px-1 sm:px-3 py-1.5 text-[11px] sm:text-xs leading-tight text-center font-medium rounded-md transition-colors flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 ${activeTab === t.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'} ${t.k === 'bounced' && activeTab !== t.k ? 'text-red-600 hover:text-red-700' : ''}`}
                   data-testid={`cheque-tab-${t.k}`}
                 >
                   {t.label}
@@ -390,7 +393,8 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 </button>
               ))}
             </div>
-            <div className="relative flex-1 min-w-[200px] max-w-md">
+            {/* Phones: search on its own row, the project filter full width below it. */}
+            <div className="relative basis-full sm:flex-1 sm:min-w-[200px] sm:max-w-md">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
               <Input
                 value={search}
@@ -407,7 +411,7 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   type="button"
                   variant="outline"
                   role="combobox"
-                  className={`h-9 min-w-[180px] justify-between px-3 text-xs font-normal ${projectFilter ? 'border-violet-300 bg-violet-50/40 text-violet-800' : ''}`}
+                  className={`h-9 flex-1 min-w-0 sm:flex-none sm:min-w-[180px] justify-between px-3 text-xs font-normal ${projectFilter ? 'border-violet-300 bg-violet-50/40 text-violet-800' : ''}`}
                   data-testid="cheque-project-filter-trigger"
                 >
                   <span className="flex items-center gap-1.5 truncate">
@@ -1096,7 +1100,7 @@ function ChequeTable({ rows, canOpen, canRequestOpen, canBounce, canDelete, canD
 }
 
 
-function SummaryCard({ color = 'blue', label, amount, count, onClick, isActive, testId }) {
+function SummaryCard({ color = 'blue', label, amount, count, onClick, isActive, testId, className = '' }) {
   const palette = {
     amber:   { border: 'border-l-amber-500',   amountClr: 'text-amber-700',   pillBg: 'bg-amber-100',   pillTxt: 'text-amber-700',   ringClr: 'ring-amber-400'   },
     blue:    { border: 'border-l-blue-500',    amountClr: 'text-blue-700',    pillBg: 'bg-blue-100',    pillTxt: 'text-blue-700',    ringClr: 'ring-blue-400'    },
@@ -1107,7 +1111,7 @@ function SummaryCard({ color = 'blue', label, amount, count, onClick, isActive, 
   const p = palette[color] || palette.blue;
   return (
     <Card
-      className={`border-l-4 ${p.border} cursor-pointer transition-all ${isActive ? `ring-2 ${p.ringClr} shadow-md` : 'hover:shadow-md'}`}
+      className={`border-l-4 ${p.border} cursor-pointer transition-all ${isActive ? `ring-2 ${p.ringClr} shadow-md` : 'hover:shadow-md'} ${className}`}
       onClick={onClick}
       data-testid={testId}
     >
