@@ -671,26 +671,26 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
         <Card className="border-blue-200 bg-gradient-to-br from-blue-50/60 to-violet-50/40">
           <CardContent className="p-3">
             <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700 mb-2">Project Value Calculation</p>
-            <div className="grid grid-cols-4 gap-2 items-stretch">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-stretch">
               {/* Value */}
-              <div className="rounded-md bg-white/80 border border-blue-200 p-2.5">
+              <div className="rounded-md bg-white/80 border border-blue-200 p-2.5 min-w-0">
                 <p className="text-[10px] text-gray-500 uppercase">Scope Value</p>
-                <p className="text-base font-bold text-blue-700 mt-0.5">{fmtINR(scopeTotal)}</p>
+                <p className="text-sm sm:text-base break-words font-bold text-blue-700 mt-0.5">{fmtINR(scopeTotal)}</p>
               </div>
               {/* Additions */}
-              <div className="rounded-md bg-white/80 border border-cyan-200 p-2.5">
+              <div className="rounded-md bg-white/80 border border-cyan-200 p-2.5 min-w-0">
                 <p className="text-[10px] text-gray-500 uppercase">Additions</p>
-                <p className="text-base font-bold text-cyan-700 mt-0.5">{fmtINR(additionsTotal)}</p>
+                <p className="text-sm sm:text-base break-words font-bold text-cyan-700 mt-0.5">{fmtINR(additionsTotal)}</p>
               </div>
               {/* Deductions */}
-              <div className="rounded-md bg-white/80 border border-orange-200 p-2.5">
+              <div className="rounded-md bg-white/80 border border-orange-200 p-2.5 min-w-0">
                 <p className="text-[10px] text-gray-500 uppercase">Deductions</p>
-                <p className="text-base font-bold text-orange-700 mt-0.5">{fmtINR(deductionsTotal)}</p>
+                <p className="text-sm sm:text-base break-words font-bold text-orange-700 mt-0.5">{fmtINR(deductionsTotal)}</p>
               </div>
               {/* Grand Total (highlighted) */}
-              <div className="rounded-md bg-violet-600 text-white p-2.5">
+              <div className="rounded-md bg-violet-600 text-white p-2.5 min-w-0">
                 <p className="text-[10px] uppercase opacity-90">Grand Total</p>
-                <p className="text-base font-extrabold mt-0.5">{fmtINR(grandTotal)}</p>
+                <p className="text-sm sm:text-base break-words font-extrabold mt-0.5">{fmtINR(grandTotal)}</p>
               </div>
             </div>
           </CardContent>
@@ -702,27 +702,27 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
             <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-2">Financial Performance</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-stretch">
               {/* Total Income */}
-              <div className="rounded-md bg-white/80 border border-emerald-200 p-2.5">
+              <div className="rounded-md bg-white/80 border border-emerald-200 p-2.5 min-w-0">
                 <p className="text-[10px] text-gray-500 uppercase">Total Income</p>
-                <p className="text-base font-bold text-emerald-700 mt-0.5">{fmtINR(totalIncome)}</p>
+                <p className="text-sm sm:text-base break-words font-bold text-emerald-700 mt-0.5">{fmtINR(totalIncome)}</p>
                 <p className="text-[9px] text-emerald-600 mt-0.5">{collectionPct.toFixed(1)}% of value</p>
               </div>
               {/* Total Expense */}
-              <div className="rounded-md bg-white/80 border border-rose-200 p-2.5">
+              <div className="rounded-md bg-white/80 border border-rose-200 p-2.5 min-w-0">
                 <p className="text-[10px] text-gray-500 uppercase">Total Expense</p>
-                <p className="text-base font-bold text-rose-600 mt-0.5">{fmtINR(totalExpense)}</p>
+                <p className="text-sm sm:text-base break-words font-bold text-rose-600 mt-0.5">{fmtINR(totalExpense)}</p>
                 {totalIncome > 0 && <p className="text-[9px] text-rose-600 mt-0.5">{((totalExpense / totalIncome) * 100).toFixed(1)}% of income</p>}
               </div>
               {/* Total Balance = Income − Expense (net cash held) */}
-              <div className={`rounded-md p-2.5 border ${(totalIncome - totalExpense) >= 0 ? 'bg-indigo-50 border-indigo-200' : 'bg-red-50 border-red-200'}`} data-testid="fin-perf-total-balance">
+              <div className={`rounded-md p-2.5 min-w-0 border ${(totalIncome - totalExpense) >= 0 ? 'bg-indigo-50 border-indigo-200' : 'bg-red-50 border-red-200'}`} data-testid="fin-perf-total-balance">
                 <p className="text-[10px] text-gray-500 uppercase">Total Balance</p>
-                <p className={`text-base font-extrabold mt-0.5 ${(totalIncome - totalExpense) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>{fmtINR(totalIncome - totalExpense)}</p>
+                <p className={`text-sm sm:text-base break-words font-extrabold mt-0.5 ${(totalIncome - totalExpense) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>{fmtINR(totalIncome - totalExpense)}</p>
                 <p className="text-[9px] text-gray-500 mt-0.5">Income − Expense</p>
               </div>
               {/* Receivable Balance */}
-              <div className={`rounded-md p-2.5 ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
+              <div className={`rounded-md p-2.5 min-w-0 ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
                 <p className="text-[10px] uppercase opacity-90">Receivable</p>
-                <p className="text-base font-extrabold mt-0.5">{fmtINR(receivableBalance)}</p>
+                <p className="text-sm sm:text-base break-words font-extrabold mt-0.5">{fmtINR(receivableBalance)}</p>
                 <p className="text-[9px] opacity-90 mt-0.5">Yet to receive</p>
               </div>
             </div>
@@ -4848,22 +4848,22 @@ export default function ProjectDetail() {
                       </Badge>
                     )}
                   </div>
-                  <div className="grid grid-cols-4 gap-2 items-stretch">
-                    <div className="rounded-md bg-white/80 border border-blue-200 p-2.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-stretch">
+                    <div className="rounded-md bg-white/80 border border-blue-200 p-2.5 min-w-0">
                       <p className="text-[10px] text-gray-500 uppercase">Scope Value</p>
-                      <p className="text-base font-bold text-blue-700 mt-0.5">{fmtINR(scopeTotal)}</p>
+                      <p className="text-sm sm:text-base break-words font-bold text-blue-700 mt-0.5">{fmtINR(scopeTotal)}</p>
                     </div>
-                    <div className="rounded-md bg-white/80 border border-cyan-200 p-2.5">
+                    <div className="rounded-md bg-white/80 border border-cyan-200 p-2.5 min-w-0">
                       <p className="text-[10px] text-gray-500 uppercase">Additions</p>
-                      <p className="text-base font-bold text-cyan-700 mt-0.5">{fmtINR(additionsTotal)}</p>
+                      <p className="text-sm sm:text-base break-words font-bold text-cyan-700 mt-0.5">{fmtINR(additionsTotal)}</p>
                     </div>
-                    <div className="rounded-md bg-white/80 border border-orange-200 p-2.5">
+                    <div className="rounded-md bg-white/80 border border-orange-200 p-2.5 min-w-0">
                       <p className="text-[10px] text-gray-500 uppercase">Deductions</p>
-                      <p className="text-base font-bold text-orange-700 mt-0.5">{fmtINR(deductionsTotal)}</p>
+                      <p className="text-sm sm:text-base break-words font-bold text-orange-700 mt-0.5">{fmtINR(deductionsTotal)}</p>
                     </div>
-                    <div className="rounded-md bg-violet-600 text-white p-2.5">
+                    <div className="rounded-md bg-violet-600 text-white p-2.5 min-w-0">
                       <p className="text-[10px] uppercase opacity-90">Grand Total</p>
-                      <p className="text-base font-extrabold mt-0.5">{fmtINR(grandTotal)}</p>
+                      <p className="text-sm sm:text-base break-words font-extrabold mt-0.5">{fmtINR(grandTotal)}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -4874,25 +4874,25 @@ export default function ProjectDetail() {
                 <CardContent className="p-3">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-2">Financial Performance</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-stretch">
-                    <div className="rounded-md bg-white/80 border border-emerald-200 p-2.5">
+                    <div className="rounded-md bg-white/80 border border-emerald-200 p-2.5 min-w-0">
                       <p className="text-[10px] text-gray-500 uppercase">Total Income</p>
-                      <p className="text-base font-bold text-emerald-700 mt-0.5">{fmtINR(totalIncome)}</p>
+                      <p className="text-sm sm:text-base break-words font-bold text-emerald-700 mt-0.5">{fmtINR(totalIncome)}</p>
                       <p className="text-[9px] text-emerald-600 mt-0.5">{collectionPct.toFixed(1)}% of value</p>
                     </div>
-                    <div className="rounded-md bg-white/80 border border-rose-200 p-2.5">
+                    <div className="rounded-md bg-white/80 border border-rose-200 p-2.5 min-w-0">
                       <p className="text-[10px] text-gray-500 uppercase">Total Expense</p>
-                      <p className="text-base font-bold text-rose-600 mt-0.5">{fmtINR(totalExpense)}</p>
+                      <p className="text-sm sm:text-base break-words font-bold text-rose-600 mt-0.5">{fmtINR(totalExpense)}</p>
                       {totalIncome > 0 && <p className="text-[9px] text-rose-600 mt-0.5">{((totalExpense / totalIncome) * 100).toFixed(1)}% of income</p>}
                     </div>
                     {/* Total Balance = Income − Expense */}
-                    <div className={`rounded-md p-2.5 border ${(totalIncome - totalExpense) >= 0 ? 'bg-indigo-50 border-indigo-200' : 'bg-red-50 border-red-200'}`} data-testid="fin-perf-total-balance-main">
+                    <div className={`rounded-md p-2.5 min-w-0 border ${(totalIncome - totalExpense) >= 0 ? 'bg-indigo-50 border-indigo-200' : 'bg-red-50 border-red-200'}`} data-testid="fin-perf-total-balance-main">
                       <p className="text-[10px] text-gray-500 uppercase">Total Balance</p>
-                      <p className={`text-base font-extrabold mt-0.5 ${(totalIncome - totalExpense) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>{fmtINR(totalIncome - totalExpense)}</p>
+                      <p className={`text-sm sm:text-base break-words font-extrabold mt-0.5 ${(totalIncome - totalExpense) >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>{fmtINR(totalIncome - totalExpense)}</p>
                       <p className="text-[9px] text-gray-500 mt-0.5">Income − Expense</p>
                     </div>
-                    <div className={`rounded-md p-2.5 ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
+                    <div className={`rounded-md p-2.5 min-w-0 ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
                       <p className="text-[10px] uppercase opacity-90">Receivable</p>
-                      <p className="text-base font-extrabold mt-0.5">{fmtINR(receivableBalance)}</p>
+                      <p className="text-sm sm:text-base break-words font-extrabold mt-0.5">{fmtINR(receivableBalance)}</p>
                       <p className="text-[9px] opacity-90 mt-0.5">Yet to receive</p>
                     </div>
                   </div>
@@ -4953,7 +4953,9 @@ export default function ProjectDetail() {
 
             {/* ==================== ROUGH ESTIMATE TAB ==================== */}
             <TabsContent value="rough-estimate" className="p-3 sm:p-6">
-              <div className="mb-4 flex items-center justify-between">
+              {/* Phones: the title on top, the two buttons below it (each half
+                  width, a full row each when they don't fit side by side). */}
+              <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
                     <FileText className="h-5 w-5 text-purple-600" />
@@ -4962,29 +4964,29 @@ export default function ProjectDetail() {
                   <p className="text-xs sm:text-sm text-gray-500">Original rough estimate from Planning department</p>
                 </div>
                 {reProject && (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {(projectData?.scope_items || []).some(s => s.remarks?.includes('From RE:')) ? (
-                      <Button 
+                      <Button
                         disabled
-                        className="bg-gray-400 cursor-not-allowed"
+                        className="bg-gray-400 cursor-not-allowed flex-1 sm:flex-none"
                         data-testid="convert-to-scope-btn"
                       >
                         <Check className="h-4 w-4 mr-2" />
                         Already Converted
                       </Button>
                     ) : (
-                      <Button 
-                        onClick={handleConvertToScope} 
-                        className="bg-green-600 hover:bg-green-700"
+                      <Button
+                        onClick={handleConvertToScope}
+                        className="bg-green-600 hover:bg-green-700 flex-1 sm:flex-none"
                         data-testid="convert-to-scope-btn"
                       >
                         <ArrowRight className="h-4 w-4 mr-2" />
                         Convert to Scope
                       </Button>
                     )}
-                    <Button 
-                      onClick={handleGenerateREPDF} 
-                      className="bg-purple-600 hover:bg-purple-700"
+                    <Button
+                      onClick={handleGenerateREPDF}
+                      className="bg-purple-600 hover:bg-purple-700 flex-1 sm:flex-none"
                       data-testid="download-re-pdf"
                     >
                       <Download className="h-4 w-4 mr-2" />
@@ -5085,21 +5087,21 @@ export default function ProjectDetail() {
                     <div className="border rounded-lg overflow-hidden" data-testid="re-inner-tabs">
                       <div className="flex border-b bg-gray-50">
                         <button
-                          className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${reInnerTab === 'scope' ? 'bg-white text-purple-700 border-b-2 border-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
+                          className={`flex-1 px-2 sm:px-4 py-2.5 text-xs sm:text-sm font-medium transition ${reInnerTab === 'scope' ? 'bg-white text-purple-700 border-b-2 border-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
                           onClick={() => setReInnerTab('scope')}
                           data-testid="re-tab-scope"
                         >
                           Scope of Work ({(reProject.rough_scope_items || reProject.scope_items || []).length})
                         </button>
                         <button
-                          className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${reInnerTab === 'payments' ? 'bg-white text-purple-700 border-b-2 border-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
+                          className={`flex-1 px-2 sm:px-4 py-2.5 text-xs sm:text-sm font-medium transition ${reInnerTab === 'payments' ? 'bg-white text-purple-700 border-b-2 border-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
                           onClick={() => setReInnerTab('payments')}
                           data-testid="re-tab-payments"
                         >
                           Payment Schedule ({(reProject.payment_schedule || []).length})
                         </button>
                       </div>
-                      <div className="p-4">
+                      <div className="p-3 sm:p-4">
                         {reInnerTab === 'scope' ? (
                           (reProject.rough_scope_items || reProject.scope_items)?.length > 0 ? (
                             <div className="overflow-x-auto">
@@ -5142,11 +5144,11 @@ export default function ProjectDetail() {
                             <>
                               <div className="flex justify-end mb-2">
                                 {(projectData?.payment_stages || []).some(s => s.notes && String(s.notes).includes('From RE:')) ? (
-                                  <Button disabled className="bg-gray-400 cursor-not-allowed" data-testid="convert-to-payments-btn">
+                                  <Button disabled className="bg-gray-400 cursor-not-allowed w-full sm:w-auto" data-testid="convert-to-payments-btn">
                                     <Check className="h-4 w-4 mr-2" /> Already Converted
                                   </Button>
                                 ) : (
-                                  <Button onClick={handleConvertToPaymentSchedule} className="bg-green-600 hover:bg-green-700" data-testid="convert-to-payments-btn">
+                                  <Button onClick={handleConvertToPaymentSchedule} className="bg-green-600 hover:bg-green-700 w-full sm:w-auto whitespace-normal h-auto min-h-9 py-2" data-testid="convert-to-payments-btn">
                                     <ArrowRight className="h-4 w-4 mr-2" /> Convert to Project Payment Schedule
                                   </Button>
                                 )}
