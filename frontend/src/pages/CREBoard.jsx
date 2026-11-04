@@ -48,7 +48,9 @@ import {
   MessageSquare,
   X,
   KeyRound,
-  Trash2
+  Trash2,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -250,6 +252,10 @@ export default function CREBoard() {
   const [psData, setPsData] = useState({ entries: [], summary: {} });
   const [psLoading, setPsLoading] = useState(false);
   const [psSubTab, setPsSubTab] = useState('pending'); // pending | partial | collected | all
+  // Nov 4 2026 — Payment Schedule rows, or the Top Sheet: what is still to
+  // collect, one row per project with its stages behind a dropdown.
+  const [psView, setPsView] = useState('schedule'); // schedule | top_sheet
+  const [psTopOpen, setPsTopOpen] = useState({});
   // Payment Schedule local quick filters (extra to the global date filter)
   const [psSearch, setPsSearch] = useState('');
   const [psMode, setPsMode] = useState('all'); // payment mode of the stage's collections
@@ -364,8 +370,8 @@ export default function CREBoard() {
     fetchPaymentSchedule(psMonth, psYear);
   };
 
-  // Reset selection whenever sub-tab or month changes (the visible rows differ).
-  useEffect(() => { setPsSelected(new Set()); }, [psSubTab, psMonth, psYear]);
+  // Reset selection whenever sub-tab, view or month changes (the visible rows differ).
+  useEffect(() => { setPsSelected(new Set()); }, [psSubTab, psView, psMonth, psYear]);
 
   const shiftPsMonth = (delta) => {
     // Navigating prev/next implicitly switches off the "all months" view
@@ -1397,7 +1403,29 @@ export default function CREBoard() {
               // Pending = everything NOT collected (still actionable). Partial rows
               // ALSO appear here so CRE can finish collecting them.
               const pendingEntries = dateFiltered.filter(e => !isCollectedEntry(e));
-              const entries = psSubTab === 'pending'   ? pendingEntries
+              // Nov 4 2026 — Top Sheet rows: only what is still to collect. A
+              // stage drops off by itself once it is fully received — nothing
+              // left on its row, or (on a past month) paid in full since.
+              const topSheetEntries = dateFiltered.filter(e =>
+                psMoney(e).balance > 1 && (e.amount || 0) - (e.amount_received || 0) > 1);
+              const topSheetProjects = (() => {
+                const byProject = new Map();
+                topSheetEntries.forEach(e => {
+                  const key = e.project_id || e.project_name;
+                  if (!byProject.has(key)) byProject.set(key, { key, name: e.project_name, client: e.client_name, entries: [], amount: 0, received: 0, balance: 0 });
+                  const p = byProject.get(key);
+                  const m = psMoney(e);
+                  p.entries.push(e);
+                  p.amount += m.amount;
+                  p.received += m.received;
+                  p.balance += m.balance;
+                });
+                return [...byProject.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+              })();
+              // The Top Sheet ignores the status sub-tabs; the Super Admin
+              // tiles then total what is still to collect.
+              const entries = psView === 'top_sheet'   ? topSheetEntries
+                            : psSubTab === 'pending'   ? pendingEntries
                             : psSubTab === 'partial'   ? partialEntries
                             : psSubTab === 'collected' ? collectedEntries
                             : dateFiltered;
@@ -1439,7 +1467,8 @@ export default function CREBoard() {
                 else if (isPartial) badge = <Badge className="bg-amber-100 text-amber-700 text-[11px]">Partial</Badge>;
                 else if (e.workflow_status === 'requested') badge = <Badge className="bg-purple-100 text-purple-700 text-[11px]">Planning Requested</Badge>;
                 else badge = <Badge className="bg-gray-100 text-gray-700 text-[11px]">Pending</Badge>;
-                return { rowAmount, rowReceived, balance, pendingApprovalAmt, hasPendingApproval, isCollected, stageFullyPaid, reCollectable, isAccRejectedBesidePending, showAccRejected, badge };
+                const canCollect = !(isCollected || (stageFullyPaid && !hasPendingApproval)) && !(hasPendingApproval && !isAccRejectedBesidePending);
+                return { rowAmount, rowReceived, balance, pendingApprovalAmt, hasPendingApproval, isCollected, stageFullyPaid, reCollectable, isAccRejectedBesidePending, showAccRejected, badge, canCollect };
               };
               const psSelectKey = (e) => e.entry_id || `computed_${e.stage_id}`;
               const togglePsSelect = (e, checked) => {
@@ -1449,6 +1478,25 @@ export default function CREBoard() {
               };
               return (
                 <div className="space-y-4">
+                  <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1 overflow-x-auto scrollbar-hide" data-testid="ps-view-tabs">
+                    {[
+                      { key: 'schedule', label: 'Payment Schedule' },
+                      { key: 'top_sheet', label: 'Top Sheet' },
+                    ].map(v => (
+                      <button
+                        key={v.key}
+                        type="button"
+                        onClick={() => setPsView(v.key)}
+                        className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                          psView === v.key ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                        data-testid={`ps-viewtab-${v.key}`}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+
                   {/* Month nav — when psAllMonths is true the centre label
                       shows "All Months" with a "This Month" shortcut; Prev/Next
                       implicitly zoom into a single month. Oct 31 2026 — phones:
@@ -1462,7 +1510,7 @@ export default function CREBoard() {
                             <p className="text-lg font-bold text-gray-900" data-testid="ps-current-month">
                               {psAllMonths ? 'All Months' : `${MONTHS[psMonth - 1]} ${psYear}`}
                             </p>
-                            <p className="text-xs text-gray-500">CRE Payment Schedule</p>
+                            <p className="text-xs text-gray-500">{psView === 'top_sheet' ? 'Top Sheet' : 'CRE Payment Schedule'}</p>
                           </div>
                           <Button size="sm" variant="outline" className="shrink-0" onClick={() => shiftPsMonth(1)} data-testid="ps-next-month">Next ›</Button>
                           <div className="basis-full h-0 sm:hidden" aria-hidden="true" />
@@ -1605,7 +1653,7 @@ export default function CREBoard() {
                   {/* Sub-tabs + Date filter + Search + Delete Selected */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex gap-2 flex-wrap items-center" data-testid="ps-subtabs">
-                      {[
+                      {psView === 'schedule' && [
                         { key: 'pending', label: 'Pending', count: pendingEntries.length, activeBg: 'bg-amber-600', dot: 'bg-red-500' },
                         { key: 'partial', label: 'Partial', count: partialEntries.length, activeBg: 'bg-orange-500', dot: 'bg-red-500' },
                         { key: 'collected', label: 'Collected', count: collectedEntries.length, activeBg: 'bg-emerald-600', dot: 'bg-red-500' },
@@ -1673,7 +1721,7 @@ export default function CREBoard() {
                       </div>
                     </div>
                     {/* Delete Selected — only renders when at least one row is checked. */}
-                    {psSelected.size > 0 && (
+                    {psView === 'schedule' && psSelected.size > 0 && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -1691,7 +1739,105 @@ export default function CREBoard() {
                     <CardContent className="p-0">
                       {psLoading ? (
                         <div className="p-8 text-center text-gray-400"><RefreshCw className="h-5 w-5 animate-spin inline mr-2" /> Loading…</div>
-                      ) : (
+                      ) : psView === 'top_sheet' ? (() => {
+                        // One grid for both widths: on phones the name takes
+                        // the row and the figures sit three across below it.
+                        const grid = 'grid grid-cols-3 md:grid-cols-[minmax(0,1fr)_8.5rem_8.5rem_8.5rem_7rem] gap-2 md:gap-3 items-center';
+                        const money = (label, value, cls, box, extra) => (
+                          <div className={`min-w-0 rounded-md px-2 py-1.5 md:p-0 md:bg-transparent md:text-right ${box}`}>
+                            <p className="text-[10px] uppercase text-gray-500 md:hidden">{label}</p>
+                            <p className={`text-xs sm:text-sm font-medium break-words ${cls}`}>{formatCurrency(value)}</p>
+                            {extra}
+                          </div>
+                        );
+                        if (topSheetProjects.length === 0) {
+                          return <p className="p-8 text-center text-sm text-gray-400" data-testid="ps-top-sheet-empty">Nothing left to collect{psAllMonths ? '' : ` for ${MONTHS[psMonth - 1]} ${psYear}`}.</p>;
+                        }
+                        return (
+                          <div className="divide-y" data-testid="ps-top-sheet">
+                            <div className={`hidden md:grid ${grid} px-4 py-2.5 bg-gray-50 dark:bg-gray-800/50 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase`}>
+                              <span>Project</span>
+                              <span className="text-right">Amount</span>
+                              <span className="text-right">Received</span>
+                              <span className="text-right">Balance</span>
+                              <span />
+                            </div>
+                            {topSheetProjects.map(p => {
+                              const open = !!psTopOpen[p.key];
+                              return (
+                                <div key={p.key} data-testid={`ps-top-sheet-project-${p.key}`}>
+                                  <button
+                                    type="button"
+                                    aria-expanded={open}
+                                    onClick={() => setPsTopOpen(s => ({ ...s, [p.key]: !s[p.key] }))}
+                                    className={`w-full text-left px-3 md:px-4 py-3 ${grid} hover:bg-gray-50 dark:hover:bg-gray-700/50 ${open ? 'bg-amber-50/60' : ''}`}
+                                    data-testid={`ps-top-sheet-toggle-${p.key}`}
+                                  >
+                                    <div className="col-span-3 md:col-span-1 flex items-center gap-2 min-w-0">
+                                      {open ? <ChevronDown className="h-4 w-4 text-amber-600 shrink-0" /> : <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />}
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-medium break-words">{p.name}</p>
+                                        <p className="text-[11px] text-gray-400 break-words">
+                                          {p.client ? `${p.client} · ` : ''}{p.entries.length} stage{p.entries.length === 1 ? '' : 's'} to collect
+                                        </p>
+                                      </div>
+                                    </div>
+                                    {money('Amount', p.amount, 'text-gray-900 dark:text-gray-100', 'bg-gray-50')}
+                                    {money('Received', p.received, 'text-green-600', 'bg-green-50/70')}
+                                    {money('Balance', p.balance, 'text-red-600', 'bg-red-50/70')}
+                                    <span className="hidden md:block" />
+                                  </button>
+                                  {open && p.entries.map(e => {
+                                    const st = psRow(e);
+                                    const id = e.entry_id || e.stage_id;
+                                    return (
+                                      <div key={id} className={`${grid} px-3 md:px-4 py-2.5 bg-gray-50/80 dark:bg-gray-800/40 border-t border-dashed`} data-testid={`ps-top-sheet-stage-${id}`}>
+                                        <div className="col-span-3 md:col-span-1 min-w-0 pl-6">
+                                          <p className="text-xs sm:text-sm text-gray-800 dark:text-gray-200 break-words">{e.stage_name}</p>
+                                          <p className="text-[11px] text-gray-500 mt-0.5">
+                                            Expected: {e.expected_payment_date ? new Date(e.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                                          </p>
+                                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                                            {st.badge}
+                                            {e.is_carryover && (
+                                              <Badge className="bg-red-50 text-red-700 border-red-200 text-[10px]">
+                                                🔴 Carried from {e.carry_from_month ? `${new Date(2000, e.carry_from_month - 1, 1).toLocaleString('en-IN', { month: 'short' })} ${e.carry_from_year}` : 'earlier'}{e.days_overdue > 0 ? ` · ${e.days_overdue}d overdue` : ''}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                          {st.showAccRejected && (
+                                            <p className="text-[11px] text-red-600 mt-1 break-words">
+                                              {e.accountant_rejection_reason}{e.accountant_rejected_by_name ? ` — ${e.accountant_rejected_by_name}` : ''}
+                                            </p>
+                                          )}
+                                        </div>
+                                        {money('Amount', st.rowAmount, 'text-gray-900 dark:text-gray-100', 'bg-white')}
+                                        {money('Received', st.rowReceived, 'text-green-600', 'bg-white',
+                                          st.pendingApprovalAmt > 0 && <p className="text-[10px] text-orange-600">+{formatCurrency(st.pendingApprovalAmt)} pending</p>)}
+                                        {money('Balance', st.balance, 'text-red-600', 'bg-white')}
+                                        <div className="col-span-3 md:col-span-1 md:text-right">
+                                          {st.canCollect ? (
+                                            <Button
+                                              size="sm"
+                                              className={`h-8 md:h-7 w-full md:w-auto px-2 text-xs ${st.showAccRejected ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}`}
+                                              onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id, collect_cap: st.isAccRejectedBesidePending ? st.reCollectable : null })}
+                                              data-testid={`ps-top-sheet-collect-${id}`}
+                                            >
+                                              <IndianRupee className="h-3.5 w-3.5 mr-1" /> {st.showAccRejected ? 'Re-Collect' : 'Collect'}
+                                            </Button>
+                                          ) : st.hasPendingApproval ? (
+                                            <span className="text-[11px] text-orange-600 font-medium">Awaiting approval</span>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })() : (
                         <>
                         {/* Oct 31 2026 — phones get one card per schedule entry
                             instead of the 9-column table. */}
@@ -1701,7 +1847,7 @@ export default function CREBoard() {
                           ) : entries.map((e) => {
                             const st = psRow(e);
                             const id = e.entry_id || e.stage_id;
-                            const canCollect = !(st.isCollected || (st.stageFullyPaid && !st.hasPendingApproval)) && !(st.hasPendingApproval && !st.isAccRejectedBesidePending);
+                            const { canCollect } = st;
                             return (
                               <div key={id} className="p-3 space-y-2" data-testid={`ps-card-${id}`}>
                                 <div className="flex items-start gap-2.5">
