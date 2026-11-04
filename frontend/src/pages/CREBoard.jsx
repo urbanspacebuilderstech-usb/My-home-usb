@@ -50,7 +50,8 @@ import {
   KeyRound,
   Trash2,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Sheet
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -252,9 +253,10 @@ export default function CREBoard() {
   const [psData, setPsData] = useState({ entries: [], summary: {} });
   const [psLoading, setPsLoading] = useState(false);
   const [psSubTab, setPsSubTab] = useState('pending'); // pending | partial | collected | all
-  // Nov 4 2026 — Payment Schedule rows, or the Top Sheet: what is still to
-  // collect, one row per project with its stages behind a dropdown.
-  const [psView, setPsView] = useState('schedule'); // schedule | top_sheet
+  // Nov 4 2026 — the Top Sheet tab (right after Payment Schedule) shows the
+  // same schedule as what is still to collect, one row per project with its
+  // stages behind a dropdown.
+  const psView = activeTab === 'top_sheet' ? 'top_sheet' : 'schedule';
   const [psTopOpen, setPsTopOpen] = useState({});
   // Payment Schedule local quick filters (extra to the global date filter)
   const [psSearch, setPsSearch] = useState('');
@@ -970,6 +972,7 @@ export default function CREBoard() {
   // and the CRE phone bottom bar (first four on the bar, the rest in More).
   const CRE_TABS = {
     payment_schedule: { label: 'Payment Schedule', icon: Calendar },
+    top_sheet: { label: 'Top Sheet', icon: Sheet },
     final_estimate: { label: 'Final Estimate', icon: FileText },
     pre_construction: { label: 'Pre-Construction', icon: Building2 },
     cheques: { label: 'Cheque Management', short: 'Cheque Mgmt', icon: CreditCard },
@@ -991,7 +994,7 @@ export default function CREBoard() {
     // Use wfMenus order if loaded; otherwise fall back to default order.
     let ordered = (wfMenus && wfMenus.length > 0)
       ? wfMenus.filter(m => m.enabled).map(m => m.key)
-      : ['payment_schedule', 'final_estimate', 'pre_construction', 'cheques', 'dt_requests', 'additional_costs', 'all_projects', 'income'];
+      : ['payment_schedule', 'top_sheet', 'final_estimate', 'pre_construction', 'cheques', 'dt_requests', 'additional_costs', 'all_projects', 'income'];
     // Force-include optional tabs when Super Admin has toggled them
     // ON globally — the per-user workflow menu config may not include
     // newer keys yet, so we must merge instead of relying solely on it.
@@ -1022,6 +1025,11 @@ export default function CREBoard() {
                         const c = (paymentRequests || []).filter(r => inDateRange(r.requested_at || r.created_at)).length;
                         return c > 0 ? <Badge className="bg-red-500 text-white text-[10px] h-5 min-w-[20px] px-1.5 flex items-center justify-center rounded-full">{c}</Badge> : null;
                       })()}
+                    </TabsTrigger>
+                  ),
+                  top_sheet: () => (
+                    <TabsTrigger key="top_sheet" value="top_sheet" className="text-xs sm:text-sm gap-1.5" data-testid="tab-top-sheet">
+                      Top Sheet
                     </TabsTrigger>
                   ),
                   final_estimate: () => (
@@ -1300,8 +1308,10 @@ export default function CREBoard() {
             <CREPreConstruction embedded />
           </TabsContent>
 
-          {/* ==================== TAB 1.7: PAYMENT SCHEDULE ==================== */}
-          <TabsContent value="payment_schedule">
+          {/* ==================== TAB 1.7: PAYMENT SCHEDULE / TOP SHEET ==================== */}
+          {/* One panel for both tabs: it takes whichever of the two is open,
+              so they share the month, filters and loaded schedule. */}
+          <TabsContent value={activeTab === 'top_sheet' ? 'top_sheet' : 'payment_schedule'}>
             {(() => {
               const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
               const allEntries = psData.entries || [];
@@ -1478,25 +1488,6 @@ export default function CREBoard() {
               };
               return (
                 <div className="space-y-4">
-                  <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1 overflow-x-auto scrollbar-hide" data-testid="ps-view-tabs">
-                    {[
-                      { key: 'schedule', label: 'Payment Schedule' },
-                      { key: 'top_sheet', label: 'Top Sheet' },
-                    ].map(v => (
-                      <button
-                        key={v.key}
-                        type="button"
-                        onClick={() => setPsView(v.key)}
-                        className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                          psView === v.key ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'
-                        }`}
-                        data-testid={`ps-viewtab-${v.key}`}
-                      >
-                        {v.label}
-                      </button>
-                    ))}
-                  </div>
-
                   {/* Month nav — when psAllMonths is true the centre label
                       shows "All Months" with a "This Month" shortcut; Prev/Next
                       implicitly zoom into a single month. Oct 31 2026 — phones:

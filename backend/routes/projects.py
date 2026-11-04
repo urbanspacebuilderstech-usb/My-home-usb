@@ -14560,6 +14560,7 @@ WORKFLOW_ROLE_CATALOG = {
         "label": "CRE",
         "menus": [
             {"key": "payment_schedule",   "label": "Payment Schedule"},
+            {"key": "top_sheet",          "label": "Top Sheet"},
             {"key": "final_estimate",     "label": "Final Estimate"},
             {"key": "pre_construction",   "label": "Pre Construction"},
             {"key": "cheques",            "label": "Cheque Management"},
@@ -14678,6 +14679,36 @@ WORKFLOW_ROLE_CATALOG = {
 }
 
 
+def _order_role_menus(seed_menus, saved_menus):
+    """The FULL menu list (default `enabled=True`) in stored order, with seed
+    keys the stored order doesn't know yet placed in."""
+    # Walk in stored order first (for menus that exist in both).
+    seen = set()
+    ordered = []
+    for m in saved_menus:
+        key = m.get("key")
+        seed_entry = next((s for s in seed_menus if s["key"] == key), None)
+        if not seed_entry or key in seen:
+            continue  # stale stored entry, drop it
+        ordered.append({"key": key, "label": seed_entry["label"], "enabled": bool(m.get("enabled", True))})
+        seen.add(key)
+    # Nov 4 2026 — a newly-introduced seed key goes right after the nearest
+    # menu before it in the seed (CRE Top Sheet after Payment Schedule, even
+    # when Super Admin has reordered the tabs); at the end when none is there.
+    for i, s in enumerate(seed_menus):
+        if s["key"] in seen:
+            continue
+        pos = len(ordered)
+        for prev in reversed(seed_menus[:i]):
+            at = next((j for j, m in enumerate(ordered) if m["key"] == prev["key"]), None)
+            if at is not None:
+                pos = at + 1
+                break
+        ordered.insert(pos, {"key": s["key"], "label": s["label"], "enabled": True})
+        seen.add(s["key"])
+    return ordered
+
+
 async def _merged_role_config(role: str):
     """Merge persisted overrides on top of the seeded catalog. Always returns
     the FULL menu list (with default `enabled=True`) ordered per stored order
@@ -14687,23 +14718,7 @@ async def _merged_role_config(role: str):
         return None
     saved = await db.role_menu_config.find_one({"role": role}, {"_id": 0})
     saved_menus = (saved or {}).get("menus") or []
-    saved_map = {m.get("key"): m for m in saved_menus}
-    # Walk in stored order first (for menus that exist in both), then append
-    # any newly-introduced seed keys at the end.
-    seen = set()
-    ordered = []
-    for m in saved_menus:
-        key = m.get("key")
-        seed_entry = next((s for s in seed["menus"] if s["key"] == key), None)
-        if not seed_entry:
-            continue  # stale stored entry, drop it
-        ordered.append({"key": key, "label": seed_entry["label"], "enabled": bool(m.get("enabled", True))})
-        seen.add(key)
-    for s in seed["menus"]:
-        if s["key"] not in seen:
-            override = saved_map.get(s["key"]) or {}
-            ordered.append({"key": s["key"], "label": s["label"], "enabled": bool(override.get("enabled", True))})
-    return {"role": role, "label": seed["label"], "menus": ordered}
+    return {"role": role, "label": seed["label"], "menus": _order_role_menus(seed["menus"], saved_menus)}
 
 
 @router.get("/admin/workflow-master/roles")
