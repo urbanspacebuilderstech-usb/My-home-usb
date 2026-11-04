@@ -18,7 +18,8 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
-export default function AccountantLabourPayments() {
+// `pendingOnly` hides the Released / All tabs (Accounts > Approvals > Labour Work Order).
+export default function AccountantLabourPayments({ pendingOnly = false }) {
   const [tab, setTab] = useState('pending');
   const [projectFilter, setProjectFilter] = useState('all');
   const [items, setItems] = useState([]);
@@ -164,6 +165,7 @@ export default function AccountantLabourPayments() {
             data-testid="alp-tab-pending">
             Pending Release {tab === 'pending' && visibleItems.length > 0 && <Badge variant="outline" className="ml-1.5 bg-amber-100 text-amber-700 border-amber-300 text-[10px]">{visibleItems.length}</Badge>}
           </button>
+          {!pendingOnly && <>
           <button onClick={() => setTab('released')}
             className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${tab === 'released' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
             data-testid="alp-tab-released">
@@ -174,6 +176,7 @@ export default function AccountantLabourPayments() {
             data-testid="alp-tab-all">
             All {tab === 'all' && visibleItems.length > 0 && <Badge variant="outline" className="ml-1.5 bg-violet-100 text-violet-700 border-violet-300 text-[10px]">{visibleItems.length}</Badge>}
           </button>
+          </>}
         </div>
         <div className="pb-1.5 min-w-[180px]">
           <ProjectFilterCombobox

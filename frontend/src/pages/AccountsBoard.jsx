@@ -4967,7 +4967,7 @@ function ApprovalsTab() {
               Lives in db.project_work_orders.stages.payment_requests (separate from legacy labour_expenses). */}
           {filteredWoStagePayments.length > 0 && (
             <div className="mb-3" data-testid="approvals-wo-stage-payments">
-              <AccountantLabourPayments />
+              <AccountantLabourPayments pendingOnly />
             </div>
           )}
           <ApprovalExpenseTable
