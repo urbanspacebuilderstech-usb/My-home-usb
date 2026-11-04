@@ -67,9 +67,11 @@ export default function ContractorManagement() {
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
-    const stored = localStorage.getItem('user');
-    if (stored) setUser(JSON.parse(stored));
+    // Nov 4 2026 — the user came from localStorage 'user', which nothing
+    // writes any more, so the header had no menu and the phone bar never showed.
+    axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => {});
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchData = async () => {
