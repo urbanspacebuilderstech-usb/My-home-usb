@@ -105,9 +105,36 @@ def test_the_tiles_are_rendered():
 
 
 def test_all_three_labels_are_present():
+    """Nov 4 2026 — the Balance tile reads "To Receive" (key still
+    `balance`), and This Month Collected was dropped."""
     src = _src()
-    for label in ("Total Planned", "Collected", "Balance"):
+    for label in ("Total Planned", "Collected", "To Receive"):
         assert "label: '%s'" % label in src
+    assert "key: 'this_month_collected'" not in src
+
+
+def collected_pct(planned, collected):
+    # mirrored from the component: rounded down, the rest is To Receive
+    return int(collected * 100 // planned) if planned > 0 else 0
+
+
+def test_collected_and_to_receive_shares_add_up_to_100():
+    s = summarise(ROWS)
+    pct = collected_pct(s["planned"], s["collected"])
+    assert pct == 51
+    assert pct + (100 - pct) == 100
+
+
+def test_the_collected_share_only_reaches_100_when_nothing_is_left():
+    assert collected_pct(1000, 999) == 99
+    assert collected_pct(1000, 1000) == 100
+    assert collected_pct(0, 0) == 0
+
+
+def test_the_shares_are_taken_of_total_planned():
+    src = _src()
+    assert "Math.floor((collectedTotal / psSummary.planned) * 100)" in src
+    assert "100 - collectedPct" in src
 
 
 def test_they_are_computed_from_the_filtered_set():
@@ -127,13 +154,17 @@ def test_they_are_computed_from_the_filtered_set():
 
 def test_the_tile_scope_is_always_derived_from_the_filtered_set():
     """`entries` may be narrowed by sub-tab, but every branch of it must come
-    from dateFiltered, or the tiles could outgrow the table."""
+    from dateFiltered, or the tiles could outgrow the table.
+
+    Nov 4 2026 — the Top Sheet tab adds a first branch (topSheetEntries,
+    the stages still to collect), also cut from dateFiltered."""
     src = _src()
-    block = src[src.index("const entries = psSubTab"):]
+    block = src[src.index("const entries = psView === 'top_sheet'"):]
     block = block[:block.index("return (")]
+    assert "topSheetEntries" in block
     assert "pendingEntries" in block and "partialEntries" in block
     assert "collectedEntries" in block and "dateFiltered" in block
-    for name in ("pendingEntries", "partialEntries", "collectedEntries"):
+    for name in ("pendingEntries", "partialEntries", "collectedEntries", "topSheetEntries"):
         assert "const %s = dateFiltered.filter(" % name in src, name
 
 

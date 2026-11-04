@@ -1538,8 +1538,12 @@ export default function CREBoard() {
                     </CardContent>
                   </Card>
 
-                  {/* Summary tiles — Total Planned / Collected / This Month
-                      Collected / Balance.
+                  {/* Summary tiles — Total Planned / Collected / To Receive.
+
+                      Nov 4 2026 — three tiles: what was planned, how much of
+                      that is collected and how much is still to receive,
+                      each share as a % of Total Planned. "This Month
+                      Collected" was dropped and Balance renamed To Receive.
 
                       Oct 1 2026 — Super Admin only. These are company-wide
                       money totals across every project on the board (crores
@@ -1579,33 +1583,10 @@ export default function CREBoard() {
                     // changes Pending/Partial/All, which previously showed 0
                     // or (on All) the same figure either way.
                     const collectedTotal = entries.reduce((s, e) => s + psMoney(e).received, 0);
-                    const receivedCount = entries.filter(e => psMoney(e).received > 0).length;
                     const outstandingCount = entries.filter(e => !isCollectedEntry(e)).length;
-                    // Sep 29 2026 (v2) — "This Month Collected": money
-                    // actually received during the REAL current calendar
-                    // month, scoped to `entries` (the SAME sub-tab-filtered
-                    // set the other tiles use) so clicking Partial narrows
-                    // this tile too, not just Collected/All. Uses the
-                    // backend's collection_month/collection_year fields
-                    // (the real paid_at-derived date, distinct from
-                    // `month`/`year` which stay pinned to the stage's
-                    // PLANNED month) — populated for any row with money
-                    // received, partial or fully collected alike.
-                    //
-                    // Oct 5 2026 — in a single month, rows carry what was
-                    // collected during that month (month_received), so the
-                    // tile is exactly that, for the month on screen. The old
-                    // sum added each stage's whole received total, so a stage
-                    // part-paid last month counted last month's money again.
-                    const _today = new Date();
-                    const thisMonthCollected = psAllMonths
-                      ? entries
-                          .filter(e => e.collection_month === _today.getMonth() + 1 && e.collection_year === _today.getFullYear())
-                          .reduce((s, e) => s + (Number(e.amount_received) || 0), 0)
-                      : entries.reduce((s, e) => s + psMoney(e).received, 0);
-                    const thisMonthLabel = psAllMonths
-                      ? MONTHS[_today.getMonth()] + ' ' + _today.getFullYear()
-                      : MONTHS[psMonth - 1] + ' ' + psYear;
+                    // Rounded down, so 100% only shows once nothing is left.
+                    const collectedPct = psSummary.planned > 0 ? Math.floor((collectedTotal / psSummary.planned) * 100) : 0;
+                    const toReceivePct = psSummary.planned > 0 ? 100 - collectedPct : 0;
                     const tiles = [
                       { key: 'planned', label: 'Total Planned',
                         value: formatCurrency(psSummary.planned),
@@ -1613,23 +1594,20 @@ export default function CREBoard() {
                         border: 'border-l-indigo-500', text: 'text-indigo-700' },
                       { key: 'collected', label: 'Collected',
                         value: formatCurrency(collectedTotal),
-                        sub: `${receivedCount} collected`,
+                        sub: `${collectedPct}% of Total Planned`,
                         border: 'border-l-emerald-500', text: 'text-emerald-700' },
-                      { key: 'this_month_collected', label: 'This Month Collected',
-                        value: formatCurrency(thisMonthCollected),
-                        sub: thisMonthLabel,
-                        border: 'border-l-teal-500', text: 'text-teal-700' },
-                      { key: 'balance', label: 'Balance',
+                      { key: 'balance', label: 'To Receive',
                         value: formatCurrency(psSummary.balance),
-                        sub: `${outstandingCount} outstanding`,
-                        border: 'border-l-red-500', text: 'text-red-600' },
+                        sub: `${toReceivePct}% of Total Planned · ${outstandingCount} stage${outstandingCount === 1 ? '' : 's'}`,
+                        border: 'border-l-red-500', text: 'text-red-600', wide: true },
                     ];
                     // Nov 3 2026 — two tiles a row on phones too; the amount
-                    // steps down a size below sm so crore figures fit a half-width tile.
+                    // steps down a size below sm so crore figures fit a
+                    // half-width tile. The third takes the full row there.
                     return (
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="ps-summary-tiles">
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3" data-testid="ps-summary-tiles">
                         {tiles.map(t => (
-                          <Card key={t.key} className={`min-w-0 border-l-4 ${t.border}`} data-testid={`ps-summary-${t.key}`}>
+                          <Card key={t.key} className={`min-w-0 border-l-4 ${t.border} ${t.wide ? 'col-span-2 lg:col-span-1' : ''}`} data-testid={`ps-summary-${t.key}`}>
                             <CardContent className="p-3">
                               <p className="text-[10px] text-gray-500 uppercase font-medium tracking-wide">{t.label}</p>
                               <p className={`text-base sm:text-xl font-bold break-words ${t.text}`}>{t.value}</p>
