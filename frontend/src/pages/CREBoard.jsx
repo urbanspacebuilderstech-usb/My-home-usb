@@ -253,7 +253,7 @@ export default function CREBoard() {
   const [psData, setPsData] = useState({ entries: [], summary: {} });
   const [psLoading, setPsLoading] = useState(false);
   const [psSubTab, setPsSubTab] = useState('pending'); // pending | partial | collected | all
-  // Nov 4 2026 — the Top Sheet tab (right after Payment Schedule) shows the
+  // Nov 4 2026 — the Top Sheet tab (the first tab) shows the
   // same schedule as what is still to collect, one row per project with its
   // stages behind a dropdown.
   const psView = activeTab === 'top_sheet' ? 'top_sheet' : 'schedule';
@@ -996,7 +996,7 @@ export default function CREBoard() {
     // Use wfMenus order if loaded; otherwise fall back to default order.
     let ordered = (wfMenus && wfMenus.length > 0)
       ? wfMenus.filter(m => m.enabled).map(m => m.key)
-      : ['payment_schedule', 'top_sheet', 'final_estimate', 'pre_construction', 'cheques', 'dt_requests', 'additional_costs', 'all_projects', 'income'];
+      : ['top_sheet', 'payment_schedule', 'final_estimate', 'pre_construction', 'cheques', 'dt_requests', 'additional_costs', 'all_projects', 'income'];
     // Force-include optional tabs when Super Admin has toggled them
     // ON globally — the per-user workflow menu config may not include
     // newer keys yet, so we must merge instead of relying solely on it.

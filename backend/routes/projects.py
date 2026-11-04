@@ -14559,8 +14559,8 @@ WORKFLOW_ROLE_CATALOG = {
     "cre": {
         "label": "CRE",
         "menus": [
-            {"key": "payment_schedule",   "label": "Payment Schedule"},
             {"key": "top_sheet",          "label": "Top Sheet"},
+            {"key": "payment_schedule",   "label": "Payment Schedule"},
             {"key": "final_estimate",     "label": "Final Estimate"},
             {"key": "pre_construction",   "label": "Pre Construction"},
             {"key": "cheques",            "label": "Cheque Management"},
@@ -14693,12 +14693,12 @@ def _order_role_menus(seed_menus, saved_menus):
         ordered.append({"key": key, "label": seed_entry["label"], "enabled": bool(m.get("enabled", True))})
         seen.add(key)
     # Nov 4 2026 — a newly-introduced seed key goes right after the nearest
-    # menu before it in the seed (CRE Top Sheet after Payment Schedule, even
-    # when Super Admin has reordered the tabs); at the end when none is there.
+    # menu before it in the seed, even when Super Admin has reordered the
+    # tabs; first when none is there (CRE Top Sheet, first in the seed).
     for i, s in enumerate(seed_menus):
         if s["key"] in seen:
             continue
-        pos = len(ordered)
+        pos = 0
         for prev in reversed(seed_menus[:i]):
             at = next((j for j, m in enumerate(ordered) if m["key"] == prev["key"]), None)
             if at is not None:

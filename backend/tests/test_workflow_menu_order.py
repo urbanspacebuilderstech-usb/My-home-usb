@@ -1,9 +1,10 @@
 """Workflow Master: where a newly-added menu lands (Nov 4 2026).
 
-The CRE Board got a Top Sheet tab, asked for "right after the Payment
-Schedule". Roles whose tab order Super Admin had already saved got every new
-seed key appended at the end, so it would have shown up last. A new key now
-goes right after the nearest menu before it in the seed.
+The CRE Board got a Top Sheet tab, first asked for "right after the Payment
+Schedule", then (same day) as the first tab. Roles whose tab order Super
+Admin had already saved got every new seed key appended at the end, so it
+would have shown up last. A new key now goes right after the nearest menu
+before it in the seed, or first when the seed has none before it.
 """
 import ast
 import io
@@ -32,32 +33,44 @@ def keys(menus):
     return [m["key"] for m in menus]
 
 
-def test_cre_top_sheet_follows_payment_schedule_in_seed():
-    assert keys(CRE)[:2] == ["payment_schedule", "top_sheet"]
+def test_cre_top_sheet_is_first_in_seed():
+    assert keys(CRE)[:2] == ["top_sheet", "payment_schedule"]
 
 
 def test_no_saved_order_gives_seed_order():
     assert keys(order(CRE, [])) == keys(CRE)
 
 
-def test_new_key_lands_after_its_seed_predecessor_in_a_saved_order():
+def test_top_sheet_goes_first_in_a_saved_order_without_it():
     saved = [{"key": k, "enabled": True} for k in
              ["final_estimate", "pre_construction", "payment_schedule", "cheques", "dt_requests", "additional_costs"]]
     out = order(CRE, saved)
-    assert keys(out) == ["final_estimate", "pre_construction", "payment_schedule", "top_sheet",
+    assert keys(out) == ["top_sheet", "final_estimate", "pre_construction", "payment_schedule",
                          "cheques", "dt_requests", "additional_costs"]
-    assert next(m for m in out if m["key"] == "top_sheet")["enabled"] is True
+    assert out[0]["enabled"] is True
+
+
+def test_saved_top_sheet_position_is_kept():
+    saved = [{"key": k, "enabled": True} for k in
+             ["payment_schedule", "top_sheet", "final_estimate"]]
+    assert keys(order(CRE, saved))[:3] == ["payment_schedule", "top_sheet", "final_estimate"]
+
+
+def test_new_key_lands_after_its_seed_predecessor_in_a_saved_order():
+    seed = [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}, {"key": "c", "label": "C"}]
+    saved = [{"key": "c", "enabled": True}, {"key": "a", "enabled": True}]
+    assert keys(order(seed, saved)) == ["c", "a", "b"]
 
 
 def test_saved_enabled_flags_and_stale_keys():
     saved = [{"key": "payment_schedule", "enabled": False}, {"key": "gone", "enabled": True},
              {"key": "final_estimate", "enabled": True}]
     out = order(CRE, saved)
-    assert keys(out)[:3] == ["payment_schedule", "top_sheet", "final_estimate"]
-    assert out[0]["enabled"] is False
+    assert keys(out)[:3] == ["top_sheet", "payment_schedule", "final_estimate"]
+    assert out[1]["enabled"] is False
     assert "gone" not in keys(out)
 
 
-def test_new_first_key_without_predecessor_goes_last():
+def test_new_first_key_without_predecessor_goes_first():
     seed = [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}]
-    assert keys(order(seed, [{"key": "b", "enabled": True}])) == ["b", "a"]
+    assert keys(order(seed, [{"key": "b", "enabled": True}])) == ["a", "b"]
