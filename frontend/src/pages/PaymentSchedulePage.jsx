@@ -22,6 +22,15 @@ import MetaDateFilter from '../components/MetaDateFilter';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const STATUS_CHIPS = {
+  requested: { label: 'Req. Raised', cls: 'bg-blue-100 text-blue-700' },
+  pending_collection: { label: 'Pending Collection', cls: 'bg-indigo-100 text-indigo-700' },
+  pending: { label: 'Not Collected', cls: 'bg-gray-100 text-gray-700' },
+  partial: { label: 'Partially Collected', cls: 'bg-amber-100 text-amber-700' },
+  paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
+  collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
+};
+const statusChip = (e) => STATUS_CHIPS[e.workflow_status] || STATUS_CHIPS[e.stage_status] || STATUS_CHIPS.pending;
 
 export default function PaymentSchedulePage() {
   const [user, setUser] = useState(null);
@@ -107,6 +116,22 @@ export default function PaymentSchedulePage() {
     return true;
   });
   const sum = schedule.summary || {};
+  const openProject = (e) => navigate(`/projects/${e.project_id}`);
+  const viewButton = (e, testId, cls) => user?.role === 'super_admin' && e.stage_id && (
+    <Button
+      size="sm"
+      variant="ghost"
+      className={`p-0 text-blue-600 hover:bg-blue-50 ${cls}`}
+      title="View stage details"
+      onClick={(ev) => { ev.stopPropagation(); setStageDetailDlg({ open: true, stageId: e.stage_id }); }}
+      data-testid={testId}
+    >
+      <Eye className="h-4 w-4" />
+    </Button>
+  );
+  const carryoverBadge = (e) => e.is_carryover && (
+    <Badge className="bg-red-50 text-red-700 border-red-200 text-[10px] mt-0.5">Due from {MONTH_NAMES[e.carry_from_month]} {e.carry_from_year}</Badge>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -137,9 +162,10 @@ export default function PaymentSchedulePage() {
             { label: 'Collected', value: formatCurrency(sum.total_received), sub: `${sum.collected_count || 0} collected`, color: 'green' },
             { label: 'Balance', value: formatCurrency(sum.total_balance), sub: '', color: 'amber' },
             { label: 'Carry Over', value: sum.carryover_count || 0, sub: 'from prev months', color: 'red' },
-            { label: 'Requested', value: sum.requested_count || 0, sub: 'sent to CRE', color: 'blue' },
+            // Nov 4 2026 — the fifth tile sat alone on its row on phones.
+            { label: 'Requested', value: sum.requested_count || 0, sub: 'sent to CRE', color: 'blue', wide: true },
           ].map(c => (
-            <Card key={c.label} className={`border-l-4 border-l-${c.color}-500`}>
+            <Card key={c.label} className={`border-l-4 border-l-${c.color}-500 ${c.wide ? 'col-span-2 sm:col-span-1' : ''}`}>
               <CardContent className="p-3">
                 <p className="text-[10px] text-gray-500 uppercase font-medium">{c.label}</p>
                 <p className={`text-lg font-bold text-${c.color}-700`}>{c.value}</p>
@@ -175,16 +201,16 @@ export default function PaymentSchedulePage() {
             </button>
           ))}
           {/* Date filter + Search bar (Feb 2026) */}
-          <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto flex-wrap">
             <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset={null} />
-            <div className="relative">
+            <div className="relative flex-1 min-w-0 sm:flex-none">
               <Search className="h-4 w-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <Input
                 type="text"
                 placeholder="Search project, client, stage…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-8 pl-8 pr-8 text-xs w-64 bg-white"
+                className="h-8 pl-8 pr-8 text-xs w-full sm:w-64 bg-white"
                 data-testid="ps-search-input"
               />
               {searchQuery && (
@@ -210,7 +236,59 @@ export default function PaymentSchedulePage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            {/* Nov 4 2026 — phones get one card per stage instead of the
+                7-column table (Received, Balance, Status and View were off
+                screen). Tapping a card opens the project, like a row. The
+                tiles above carry the totals, so no Total card. */}
+            <div className="md:hidden divide-y border-t" data-testid="schedule-cards">
+              {entries.length === 0 ? (
+                <p className="p-8 text-center text-sm text-gray-400">No entries for {MONTH_NAMES[month]} {year}</p>
+              ) : entries.map(e => {
+                const sc = statusChip(e);
+                return (
+                  <div
+                    key={e.entry_id}
+                    role="button"
+                    tabIndex={0}
+                    className="px-4 py-3 space-y-2 cursor-pointer hover:bg-indigo-50/50 focus:outline-none focus-visible:bg-indigo-50/50"
+                    onClick={() => openProject(e)}
+                    onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openProject(e); } }}
+                    data-testid={`schedule-card-${e.entry_id}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-indigo-700 break-words">{e.project_name}</p>
+                        <p className="text-[10px] text-gray-400 break-words">{e.client_name}</p>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-1">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${sc.cls}`}>{sc.label}</span>
+                        {viewButton(e, `acc-ps-view-card-${e.entry_id}`, 'h-8 w-8')}
+                      </div>
+                    </div>
+                    <div className="text-xs">
+                      <span className="font-medium text-gray-900">Stage {e.stage_label}</span>
+                      <p className="text-gray-500 break-words">{e.stage_name}</p>
+                      {carryoverBadge(e)}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="min-w-0 rounded-md bg-gray-50 px-2 py-1.5">
+                        <p className="text-[10px] uppercase text-gray-500">Amount</p>
+                        <p className="font-medium break-words">{formatCurrency(e.amount)}</p>
+                      </div>
+                      <div className="min-w-0 rounded-md bg-green-50/60 px-2 py-1.5">
+                        <p className="text-[10px] uppercase text-gray-500">Received</p>
+                        <p className="font-medium text-green-600 break-words">{formatCurrency(e.amount_received)}</p>
+                      </div>
+                      <div className="min-w-0 rounded-md bg-red-50/60 px-2 py-1.5">
+                        <p className="text-[10px] uppercase text-gray-500">Balance</p>
+                        <p className="font-medium text-red-600 break-words">{formatCurrency((e.amount || 0) - (e.amount_received || 0))}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm" data-testid="schedule-table">
                 <thead className="bg-gray-50 border-y">
                   <tr>
@@ -228,17 +306,9 @@ export default function PaymentSchedulePage() {
                     <tr><td colSpan="7" className="p-8 text-center text-gray-400">No entries for {MONTH_NAMES[month]} {year}</td></tr>
                   ) : entries.map(e => {
                     const balance = (e.amount || 0) - (e.amount_received || 0);
-                    const scMap = {
-                      requested: { label: 'Req. Raised', cls: 'bg-blue-100 text-blue-700' },
-                      pending_collection: { label: 'Pending Collection', cls: 'bg-indigo-100 text-indigo-700' },
-                      pending: { label: 'Not Collected', cls: 'bg-gray-100 text-gray-700' },
-                      partial: { label: 'Partially Collected', cls: 'bg-amber-100 text-amber-700' },
-                      paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
-                      collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
-                    };
-                    const sc = scMap[e.workflow_status] || scMap[e.stage_status] || scMap.pending;
+                    const sc = statusChip(e);
                     return (
-                      <tr key={e.entry_id} className="hover:bg-indigo-50/50 cursor-pointer" onClick={() => navigate(`/projects/${e.project_id}`)}>
+                      <tr key={e.entry_id} className="hover:bg-indigo-50/50 cursor-pointer" onClick={() => openProject(e)}>
                         <td className="px-4 py-2.5">
                           <p className="font-medium text-indigo-700">{e.project_name}</p>
                           <p className="text-[10px] text-gray-400">{e.client_name}</p>
@@ -246,9 +316,7 @@ export default function PaymentSchedulePage() {
                         <td className="px-4 py-2.5">
                           <span className="font-medium">Stage {e.stage_label}</span>
                           <p className="text-xs text-gray-500">{e.stage_name}</p>
-                          {e.is_carryover && (
-                            <Badge className="bg-red-50 text-red-700 border-red-200 text-[10px] mt-0.5">Due from {MONTH_NAMES[e.carry_from_month]} {e.carry_from_year}</Badge>
-                          )}
+                          {carryoverBadge(e)}
                         </td>
                         <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
                         <td className="px-4 py-2.5 text-right text-green-600 font-medium">{formatCurrency(e.amount_received)}</td>
@@ -257,18 +325,7 @@ export default function PaymentSchedulePage() {
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${sc.cls}`}>{sc.label}</span>
                         </td>
                         <td className="px-4 py-2.5 text-center">
-                          {user?.role === 'super_admin' && e.stage_id && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
-                              title="View stage details"
-                              onClick={(ev) => { ev.stopPropagation(); setStageDetailDlg({ open: true, stageId: e.stage_id }); }}
-                              data-testid={`acc-ps-view-${e.entry_id}`}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          )}
+                          {viewButton(e, `acc-ps-view-${e.entry_id}`, 'h-7 w-7')}
                         </td>
                       </tr>
                     );
