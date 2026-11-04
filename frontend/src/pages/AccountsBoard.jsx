@@ -4675,6 +4675,89 @@ function ApprovalsTab() {
   // Keep s in scope for any downstream usage (e.g., non-filtered pieces)
   void s;
 
+  // Nov 4 2026 — the Income Approvals table and its phone cards share these.
+  // `tid` builds each test id so the card and the row don't share one.
+  const incomeFlags = (inc) => {
+    const st = (inc.status || '').toLowerCase();
+    return {
+      isPending: st === 'pending_approval' || st === 'pending',
+      isApproved: ['approved', 'verified', 'accountant_verified'].includes(st),
+      isRejected: ['rejected', 'accountant_rejected', 'accounts_rejected'].includes(st),
+      isCorrection: st === 'under_correction',
+      // Aug 10 2026 — bounced incoming cheque, re-queued into
+      // Approvals (see backend's pending income_statuses) so it
+      // doesn't silently vanish. Approving it makes no sense
+      // (the money never arrived) — the only sane action is to
+      // formally reject/close it out; a fresh collection creates
+      // a brand new income entry when the client actually pays.
+      isChequeBounced: st === 'cheque_bounced',
+    };
+  };
+  const incomeTint = (f) => (f.isCorrection ? 'bg-orange-50/40' : f.isRejected ? 'bg-red-50/40' : f.isChequeBounced ? 'bg-rose-50/40' : '');
+  const incomeDescription = (inc, f, tid) => (
+    <>
+      {inc.stage || inc.remarks || inc.description || 'Payment'}
+      {f.isChequeBounced && (
+        <p className="text-[10px] text-rose-600 mt-0.5" data-testid={tid('approval-income-bounce-reason')}>
+          ⚠ Cheque{inc.bounced_cheque_number ? ` #${inc.bounced_cheque_number}` : ''} bounced{inc.bounce_reason ? ` — ${inc.bounce_reason}` : ''}. Close / Reject so CRE can re-collect.
+        </p>
+      )}
+      {inc.cheque_deleted && (
+        <p className="text-[10px] text-rose-600 mt-0.5" data-testid={tid('approval-income-cheque-deleted')}>
+          ⚠ Cheque #{inc.cheque_deleted_number} deleted{inc.cheque_deleted_reason ? ` — ${inc.cheque_deleted_reason}` : ''}{f.isPending ? '. Reject so CRE can re-collect.' : ''}
+        </p>
+      )}
+    </>
+  );
+  const incomeMode = (inc) => (
+    <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(inc.payment_mode)]}`}>
+      {MODE_LABELS[classifyMode(inc.payment_mode)] || inc.payment_mode || 'Cash'}
+    </Badge>
+  );
+  const incomeStatus = (inc, f, tid) => (
+    <StatusPill
+      status={inc.status}
+      data-testid={tid('approval-income-status')}
+      onClick={(f.isRejected || f.isCorrection) ? () => setViewCorrectionIncome(inc) : undefined}
+    />
+  );
+  const incomeHasAction = (f) => f.isPending || f.isChequeBounced || f.isApproved || f.isRejected || f.isCorrection;
+  // `size` — the table's compact buttons, or bigger tap targets on phones.
+  const incomeActions = (inc, f, tid, size) => (
+    <>
+      {f.isPending && (
+        <Button size="sm" className={`${size} bg-amber-600 hover:bg-amber-700 gap-1 px-3`}
+          disabled={processing === inc.income_id}
+          onClick={() => openReviewDialog(inc)}
+          data-testid={tid('review-income-btn')}>
+          {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ClipboardCheck className="h-3 w-3" />} Review
+        </Button>
+      )}
+      {f.isChequeBounced && (
+        <Button size="sm" variant="outline" className={`${size} text-rose-700 border-rose-300 hover:bg-rose-50 gap-1`}
+          disabled={processing === inc.income_id}
+          onClick={() => setRejectDialog({ open: true, type: 'income', id: inc.income_id, reason: '' })}
+          data-testid={tid('close-bounced-income-btn')}>
+          <XCircle className="h-3 w-3" /> Close / Reject
+        </Button>
+      )}
+      {f.isApproved && (
+        <Button size="sm" variant="outline" className={`${size} text-orange-600 border-orange-300 hover:bg-orange-50 gap-1`}
+          onClick={() => { setCorrectionIncome(inc); setCorrectionIncomeReason(''); }}
+          data-testid={tid('income-correction-btn')}>
+          🔄 Send for Correction
+        </Button>
+      )}
+      {(f.isRejected || f.isCorrection) && (
+        <Button size="sm" variant="outline" className={`${size} text-red-600 border-red-300 hover:bg-red-50 gap-1`}
+          onClick={() => setViewCorrectionIncome(inc)}
+          data-testid={tid('income-view-correction-btn')}>
+          View / Edit
+        </Button>
+      )}
+    </>
+  );
+
   if (loading && !data.summary) {
     return (
       <div className="flex justify-center py-12">
@@ -4839,7 +4922,35 @@ function ApprovalsTab() {
           ) : (
             <Card>
               <CardContent className="px-0">
-                <div className="overflow-x-auto">
+                {/* Nov 4 2026 — phones get one card per income instead of the
+                    8-column table, which ran off the screen (Amount, Status
+                    and Action were out of sight). */}
+                <div className="md:hidden divide-y" data-testid="approvals-income-cards">
+                  {filteredIncome.map((inc, i) => {
+                    const f = incomeFlags(inc);
+                    const tid = (base) => `${base}-card-${inc.income_id}`;
+                    return (
+                      <div key={inc.income_id} className={`px-3 py-3 space-y-1.5 text-xs ${incomeTint(f)}`} data-testid={`approval-income-card-${inc.income_id}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="min-w-0 text-sm font-semibold text-gray-900 break-words">
+                            <span className="mr-1 text-xs font-normal text-gray-400">{i + 1}.</span>{inc.project_name || 'N/A'}
+                          </p>
+                          <p className="shrink-0 text-sm font-bold text-green-700"><MaskedValue value={inc.amount} className="text-green-700" /></p>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-gray-500">{new Date(inc.created_at).toLocaleDateString('en-IN')}</span>
+                          {incomeMode(inc)}
+                          {incomeStatus(inc, f, tid)}
+                        </div>
+                        <div className="text-gray-700 break-words">{incomeDescription(inc, f, tid)}</div>
+                        {incomeHasAction(f) && (
+                          <div className="flex gap-2 justify-end flex-wrap pt-0.5">{incomeActions(inc, f, tid, 'h-8 text-xs')}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-xs" data-testid="approvals-income-table">
                     <thead>
                       <tr className="border-b bg-gray-50">
@@ -4855,82 +4966,19 @@ function ApprovalsTab() {
                     </thead>
                     <tbody>
                       {filteredIncome.map((inc, i) => {
-                        const st = (inc.status || '').toLowerCase();
-                        const isPending = st === 'pending_approval' || st === 'pending';
-                        const isApproved = ['approved', 'verified', 'accountant_verified'].includes(st);
-                        const isRejected = ['rejected', 'accountant_rejected', 'accounts_rejected'].includes(st);
-                        const isCorrection = st === 'under_correction';
-                        // Aug 10 2026 — bounced incoming cheque, re-queued into
-                        // Approvals (see backend's pending income_statuses) so it
-                        // doesn't silently vanish. Approving it makes no sense
-                        // (the money never arrived) — the only sane action is to
-                        // formally reject/close it out; a fresh collection creates
-                        // a brand new income entry when the client actually pays.
-                        const isChequeBounced = st === 'cheque_bounced';
+                        const f = incomeFlags(inc);
+                        const tid = (base) => `${base}-${inc.income_id}`;
                         return (
-                          <tr key={inc.income_id} className={`border-b hover:bg-gray-50 ${isCorrection ? 'bg-orange-50/40' : isRejected ? 'bg-red-50/40' : isChequeBounced ? 'bg-rose-50/40' : ''}`} data-testid={`approval-income-row-${inc.income_id}`}>
+                          <tr key={inc.income_id} className={`border-b hover:bg-gray-50 ${incomeTint(f)}`} data-testid={`approval-income-row-${inc.income_id}`}>
                             <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                             <td className="px-3 py-2 whitespace-nowrap">{new Date(inc.created_at).toLocaleDateString('en-IN')}</td>
                             <td className="px-3 py-2 font-medium">{inc.project_name || 'N/A'}</td>
-                            <td className="px-3 py-2">
-                              {inc.stage || inc.remarks || inc.description || 'Payment'}
-                              {isChequeBounced && (
-                                <p className="text-[10px] text-rose-600 mt-0.5" data-testid={`approval-income-bounce-reason-${inc.income_id}`}>
-                                  ⚠ Cheque{inc.bounced_cheque_number ? ` #${inc.bounced_cheque_number}` : ''} bounced{inc.bounce_reason ? ` — ${inc.bounce_reason}` : ''}. Close / Reject so CRE can re-collect.
-                                </p>
-                              )}
-                              {inc.cheque_deleted && (
-                                <p className="text-[10px] text-rose-600 mt-0.5" data-testid={`approval-income-cheque-deleted-${inc.income_id}`}>
-                                  ⚠ Cheque #{inc.cheque_deleted_number} deleted{inc.cheque_deleted_reason ? ` — ${inc.cheque_deleted_reason}` : ''}{isPending ? '. Reject so CRE can re-collect.' : ''}
-                                </p>
-                              )}
-                            </td>
-                            <td className="px-3 py-2">
-                              <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(inc.payment_mode)]}`}>
-                                {MODE_LABELS[classifyMode(inc.payment_mode)] || inc.payment_mode || 'Cash'}
-                              </Badge>
-                            </td>
+                            <td className="px-3 py-2">{incomeDescription(inc, f, tid)}</td>
+                            <td className="px-3 py-2">{incomeMode(inc)}</td>
                             <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={inc.amount} className="text-green-700" /></td>
+                            <td className="px-3 py-2 text-center">{incomeStatus(inc, f, tid)}</td>
                             <td className="px-3 py-2 text-center">
-                              <StatusPill
-                                status={inc.status}
-                                data-testid={`approval-income-status-${inc.income_id}`}
-                                onClick={(isRejected || isCorrection) ? () => setViewCorrectionIncome(inc) : undefined}
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              <div className="flex gap-1 justify-center flex-wrap">
-                                {isPending && (
-                                  <Button size="sm" className="h-6 text-[10px] bg-amber-600 hover:bg-amber-700 gap-1 px-3"
-                                    disabled={processing === inc.income_id}
-                                    onClick={() => openReviewDialog(inc)}
-                                    data-testid={`review-income-btn-${inc.income_id}`}>
-                                    {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ClipboardCheck className="h-3 w-3" />} Review
-                                  </Button>
-                                )}
-                                {isChequeBounced && (
-                                  <Button size="sm" variant="outline" className="h-6 text-[10px] text-rose-700 border-rose-300 hover:bg-rose-50 gap-1"
-                                    disabled={processing === inc.income_id}
-                                    onClick={() => setRejectDialog({ open: true, type: 'income', id: inc.income_id, reason: '' })}
-                                    data-testid={`close-bounced-income-btn-${inc.income_id}`}>
-                                    <XCircle className="h-3 w-3" /> Close / Reject
-                                  </Button>
-                                )}
-                                {isApproved && (
-                                  <Button size="sm" variant="outline" className="h-6 text-[10px] text-orange-600 border-orange-300 hover:bg-orange-50 gap-1"
-                                    onClick={() => { setCorrectionIncome(inc); setCorrectionIncomeReason(''); }}
-                                    data-testid={`income-correction-btn-${inc.income_id}`}>
-                                    🔄 Send for Correction
-                                  </Button>
-                                )}
-                                {(isRejected || isCorrection) && (
-                                  <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-300 hover:bg-red-50 gap-1"
-                                    onClick={() => setViewCorrectionIncome(inc)}
-                                    data-testid={`income-view-correction-btn-${inc.income_id}`}>
-                                    View / Edit
-                                  </Button>
-                                )}
-                              </div>
+                              <div className="flex gap-1 justify-center flex-wrap">{incomeActions(inc, f, tid, 'h-6 text-[10px]')}</div>
                             </td>
                           </tr>
                         );
@@ -5745,10 +5793,77 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
     );
   }
 
+  // Nov 4 2026 — shared by the table rows and the phone cards; `tid` keeps
+  // their test ids apart and `size` picks compact or tap-sized buttons.
+  const statusBadge = (item) => (
+    <Badge className={
+      item.status === 'requested' ? 'bg-yellow-100 text-yellow-700' :
+      item.status === 'planning_approved' ? 'bg-blue-100 text-blue-700' :
+      item.status === 'pending_accounts_approval' ? 'bg-orange-100 text-orange-700' :
+      item.status === 'procurement_priced' ? 'bg-purple-100 text-purple-700' :
+      'bg-gray-100 text-gray-700'
+    }>{item.status?.replace(/_/g, ' ')}</Badge>
+  );
+  const actionButtons = (id, action, tid, size) => (
+    <>
+      {onPay && (
+        <Button size="sm" className={`${size} bg-emerald-600 hover:bg-emerald-700 gap-1 px-2`}
+          disabled={processing === id}
+          onClick={() => onPay(id)}
+          data-testid={tid(`pay-${type}-btn`)}>
+          <Wallet className="h-3 w-3" /> Pay & Settle
+        </Button>
+      )}
+      <Button size="sm" className={`${size} bg-green-600 hover:bg-green-700 gap-1 px-2`}
+        disabled={processing === id}
+        onClick={() => onApprove(type, id, action)}
+        data-testid={tid(`approve-${type}-btn`)}>
+        {processing === id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ThumbsUp className="h-3 w-3" />} Approve
+      </Button>
+      <Button size="sm" variant="outline" className={`${size} text-red-600 border-red-200 gap-1 px-2`}
+        onClick={() => onReject(id)}
+        data-testid={tid(`reject-${type}-btn`)}>
+        <ThumbsDown className="h-3 w-3" /> Reject
+      </Button>
+    </>
+  );
+
   return (
     <Card>
       <CardContent className="px-0">
-        <div className="overflow-x-auto">
+        {/* Nov 4 2026 — phones get one card per request instead of the
+            8-column table. */}
+        <div className="md:hidden divide-y" data-testid={`approvals-${type}-cards`}>
+          {items.map((item, i) => {
+            const id = item[idField] || item.expense_id;
+            const amount = item[amountField] || (altAmountField ? item[altAmountField] : 0) || 0;
+            const desc = item[descField] || item.description || 'Unknown';
+            const action = getApprovalAction(item.status, type);
+            const tid = (base) => `${base}-card-${id}`;
+            return (
+              <div key={id} className="px-3 py-3 space-y-1.5 text-xs" data-testid={`approval-${type}-card-${id}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 text-sm font-semibold text-gray-900 break-words">
+                    <span className="mr-1 text-xs font-normal text-gray-400">{i + 1}.</span>{desc}
+                  </p>
+                  <p className="shrink-0 text-sm font-bold text-amber-700"><MaskedValue value={amount} className="text-amber-700" /></p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-gray-700">{item.project_name || 'N/A'}</span>
+                  {statusBadge(item)}
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  {item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : '-'}
+                  {' · '}A/C Received: <span className={formatAccountsReceived(item.accounts_received_at) ? 'text-gray-700' : 'text-gray-400'} data-testid={tid(`approval-${type}-received`)}>{formatAccountsReceived(item.accounts_received_at) || '—'}</span>
+                </p>
+                <div className="flex gap-2 justify-end flex-wrap pt-0.5">
+                  {action ? actionButtons(id, action, tid, 'h-8 text-xs') : <span className="text-[10px] text-gray-400">No action available</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-xs" data-testid={`approvals-${type}-table`}>
             <thead>
               <tr className="border-b bg-gray-50">
@@ -5768,6 +5883,7 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
                 const amount = item[amountField] || (altAmountField ? item[altAmountField] : 0) || 0;
                 const desc = item[descField] || item.description || 'Unknown';
                 const action = getApprovalAction(item.status, type);
+                const tid = (base) => `${base}-${id}`;
 
                 return (
                   <tr key={id} className="border-b hover:bg-gray-50" data-testid={`approval-${type}-row-${id}`}>
@@ -5783,38 +5899,10 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
                     <td className="px-3 py-2 font-medium">{desc}</td>
                     <td className="px-3 py-2">{item.project_name || 'N/A'}</td>
                     <td className="px-3 py-2 text-right font-bold text-amber-700"><MaskedValue value={amount} className="text-amber-700" /></td>
-                    <td className="px-3 py-2 text-center">
-                      <Badge className={
-                        item.status === 'requested' ? 'bg-yellow-100 text-yellow-700' :
-                        item.status === 'planning_approved' ? 'bg-blue-100 text-blue-700' :
-                        item.status === 'pending_accounts_approval' ? 'bg-orange-100 text-orange-700' :
-                        item.status === 'procurement_priced' ? 'bg-purple-100 text-purple-700' :
-                        'bg-gray-100 text-gray-700'
-                      }>{item.status?.replace(/_/g, ' ')}</Badge>
-                    </td>
+                    <td className="px-3 py-2 text-center">{statusBadge(item)}</td>
                     <td className="px-3 py-2 text-center">
                       {action ? (
-                        <div className="flex items-center justify-center gap-1 flex-wrap">
-                          {onPay && (
-                            <Button size="sm" className="h-6 text-[10px] bg-emerald-600 hover:bg-emerald-700 gap-1 px-2"
-                              disabled={processing === id}
-                              onClick={() => onPay(id)}
-                              data-testid={`pay-${type}-btn-${id}`}>
-                              <Wallet className="h-3 w-3" /> Pay & Settle
-                            </Button>
-                          )}
-                          <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700 gap-1 px-2"
-                            disabled={processing === id}
-                            onClick={() => onApprove(type, id, action)}
-                            data-testid={`approve-${type}-btn-${id}`}>
-                            {processing === id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ThumbsUp className="h-3 w-3" />} Approve
-                          </Button>
-                          <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-200 gap-1 px-2"
-                            onClick={() => onReject(id)}
-                            data-testid={`reject-${type}-btn-${id}`}>
-                            <ThumbsDown className="h-3 w-3" /> Reject
-                          </Button>
-                        </div>
+                        <div className="flex items-center justify-center gap-1 flex-wrap">{actionButtons(id, action, tid, 'h-6 text-[10px]')}</div>
                       ) : (
                         <span className="text-[10px] text-gray-400">No action available</span>
                       )}
