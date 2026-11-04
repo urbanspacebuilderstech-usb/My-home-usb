@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Bell, LogOut, UserCircle, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -181,10 +182,36 @@ const ROLE_LABEL_MAP = {
 };
 const roleLabel = (r) => (r ? (ROLE_LABEL_MAP[r] || r.replace(/_/g, ' ')) : '…');
 
-export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, subNavOnPhone = true, hideGreeting = false, backTo = null, greetingClass = 'max-w-7xl mx-auto px-4 sm:px-6' }) {
+// The last unread count the header fetched, so the bell keeps its badge
+// while the next page fetches it again.
+let lastUnreadCount = 0;
+
+export function AppHeader({ user, unreadNotifs, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false, subNavOnPhone = true, hideGreeting = false, backTo = null, greetingClass = 'max-w-7xl mx-auto px-4 sm:px-6' }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useTheme();
+
+  // Nov 4 2026 — only a few pages (Sales Masterview, Dashboard, …) pass
+  // `unreadNotifs`, so the bell had no count on Pre Sales, Sales and most
+  // other pages. When it isn't passed, the header counts the unread ones
+  // itself, the same way those pages do.
+  const countsOwnUnread = unreadNotifs === undefined;
+  const [ownUnread, setOwnUnread] = useState(lastUnreadCount);
+  useEffect(() => {
+    if (!countsOwnUnread || !user?.user_id) return undefined;
+    let embedded = false;
+    try { embedded = window.self !== window.top || new URLSearchParams(window.location.search).get('embedded') === '1'; } catch { embedded = true; }
+    if (embedded) return undefined;
+    let cancelled = false;
+    axios.get(`${API}/notifications`)
+      .then(r => {
+        lastUnreadCount = (r.data || []).filter(n => !n.read).length;
+        if (!cancelled) setOwnUnread(lastUnreadCount);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [countsOwnUnread, user?.user_id]);
+  const unreadCount = countsOwnUnread ? ownUnread : unreadNotifs;
 
   // Embedded mode: hosted inside Finance Board (or another) iframe.
   // - `?embedded=1` alone → render nothing (parent already has its own header).
@@ -397,8 +424,8 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
               </Button>
               <Button variant="ghost" size="icon" onClick={() => navigate('/notifications')} className="relative h-9 w-9" data-testid="header-notifications">
                 <Bell className="h-4 w-4" />
-                {unreadNotifs > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center">{unreadNotifs}</span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center">{unreadCount}</span>
                 )}
               </Button>
               <Button variant="ghost" size="icon" onClick={() => navigate('/profile')} className="h-9 w-9 text-gray-500 hover:text-amber-600" data-testid="header-profile">
