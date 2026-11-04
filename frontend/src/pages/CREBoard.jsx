@@ -257,6 +257,8 @@ export default function CREBoard() {
   // same schedule as what is still to collect, one row per project with its
   // stages behind a dropdown.
   const psView = activeTab === 'top_sheet' ? 'top_sheet' : 'schedule';
+  // The Top Sheet has no month bar: it always covers every month.
+  useEffect(() => { if (activeTab === 'top_sheet') setPsAllMonths(true); }, [activeTab]);
   const [psTopOpen, setPsTopOpen] = useState({});
   // Payment Schedule local quick filters (extra to the global date filter)
   const [psSearch, setPsSearch] = useState('');
@@ -1014,7 +1016,9 @@ export default function CREBoard() {
           {/* Oct 31 2026 — desktop only for CRE: below `lg` their bottom bar
               holds these tabs (Super Admin's / Sales Head's doesn't). */}
           <div className={`${isCreRole ? 'hidden lg:flex' : 'flex'} items-center justify-between mb-3 gap-3 flex-wrap`}>
-            <TabsList className="bg-white border shadow-sm">
+            {/* Nov 4 2026 — the strip spans the full width, tabs sharing it
+                evenly; it scrolls sideways when they don't fit. */}
+            <TabsList className="bg-white border shadow-sm w-full justify-start overflow-x-auto scrollbar-hide [&>*]:flex-1">
               {(() => {
                 // Render tabs in the order saved by Super Admin via Workflow Master.
                 // Each entry must be enabled in workflow + pass the optional CRE Module flag.
@@ -1492,7 +1496,9 @@ export default function CREBoard() {
                       shows "All Months" with a "This Month" shortcut; Prev/Next
                       implicitly zoom into a single month. Oct 31 2026 — phones:
                       Prev · month · Next on one line, This Month / All Months and
-                      Refresh on the next (the toggle used to run off the screen). */}
+                      Refresh on the next (the toggle used to run off the screen).
+                      Nov 4 2026 — not on the Top Sheet, which is always All Months. */}
+                  {psView === 'schedule' && (
                   <Card>
                     <CardContent className="p-3">
                       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1501,7 +1507,7 @@ export default function CREBoard() {
                             <p className="text-lg font-bold text-gray-900" data-testid="ps-current-month">
                               {psAllMonths ? 'All Months' : `${MONTHS[psMonth - 1]} ${psYear}`}
                             </p>
-                            <p className="text-xs text-gray-500">{psView === 'top_sheet' ? 'Top Sheet' : 'CRE Payment Schedule'}</p>
+                            <p className="text-xs text-gray-500">CRE Payment Schedule</p>
                           </div>
                           <Button size="sm" variant="outline" className="shrink-0" onClick={() => shiftPsMonth(1)} data-testid="ps-next-month">Next ›</Button>
                           <div className="basis-full h-0 sm:hidden" aria-hidden="true" />
@@ -1537,6 +1543,7 @@ export default function CREBoard() {
                       </div>
                     </CardContent>
                   </Card>
+                  )}
 
                   {/* Summary tiles — Total Planned / Collected / To Receive.
 
@@ -1699,6 +1706,19 @@ export default function CREBoard() {
                         data-testid="ps-delete-selected"
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Delete Selected ({psSelected.size})
+                      </Button>
+                    )}
+                    {/* The Top Sheet's Refresh (it has no month bar to hold one). */}
+                    {psView === 'top_sheet' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 w-full sm:w-auto"
+                        onClick={() => fetchPaymentSchedule()}
+                        disabled={psLoading}
+                        data-testid="ps-top-sheet-refresh"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${psLoading ? 'animate-spin' : ''}`} /> Refresh
                       </Button>
                     )}
                   </div>
