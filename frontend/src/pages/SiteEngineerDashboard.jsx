@@ -651,6 +651,9 @@ export default function SiteEngineerDashboard() {
     }
     const validItems = directExpItems.filter(i => i.expense_name && i.amount);
     if (validItems.length === 0) { toast.error('Add at least one expense item'); return; }
+    // Nov 4 2026 — the bill is mandatory on every expense item.
+    const noBill = validItems.find(i => !i.bill_file_id);
+    if (noBill) { toast.error(`Upload the bill for "${noBill.expense_name}"`); return; }
     const totalAmount = validItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
     // Feb 28 2026 — Auto-distribute the expense total across the picked
     // buckets FIFO (in the order checked). User no longer enters amounts
@@ -3356,7 +3359,7 @@ export default function SiteEngineerDashboard() {
                     <div className="flex items-center gap-2">
                       <label className="flex items-center gap-1.5 text-xs text-blue-600 cursor-pointer hover:text-blue-800">
                         <input type="file" className="hidden" accept="image/*,.pdf" onChange={e => handleBillUpload(idx, e.target.files[0])} />
-                        <Plus className="h-3 w-3" /> {item.bill_filename ? item.bill_filename : 'Upload Bill'}
+                        <Plus className="h-3 w-3" /> {item.bill_file_id ? item.bill_filename : <>Upload Bill <span className="text-red-500">*</span></>}
                       </label>
                       {item.bill_filename && <Badge variant="outline" className="text-[10px] text-green-600">{item.bill_filename}</Badge>}
                     </div>

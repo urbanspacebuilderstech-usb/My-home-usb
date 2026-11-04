@@ -4471,6 +4471,10 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
         raise HTTPException(status_code=400, detail="project_id is required")
     if not items:
         raise HTTPException(status_code=400, detail="At least one expense item is required")
+    # Nov 4 2026 — the bill is mandatory on every expense item.
+    no_bill = [item.get("expense_name") or "item" for item in items if not item.get("bill_file_id")]
+    if no_bill:
+        raise HTTPException(status_code=400, detail=f"Upload the bill for: {', '.join(no_bill)}")
 
     total = sum(float(item.get("amount", 0)) for item in items)
 

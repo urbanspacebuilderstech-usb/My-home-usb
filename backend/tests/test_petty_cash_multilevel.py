@@ -316,17 +316,20 @@ class TestDirectExpense:
                 {
                     "category": "Electrical",
                     "expense_name": "TEST_Wire purchase",
-                    "amount": 1500
+                    "amount": 1500,
+                    "bill_file_id": "TEST_bill", "bill_filename": "bill.jpg"
                 },
                 {
                     "category": "Plumbing",
                     "expense_name": "TEST_Pipe fittings",
-                    "amount": 800
+                    "amount": 800,
+                    "bill_file_id": "TEST_bill", "bill_filename": "bill.jpg"
                 },
                 {
                     "category": "Miscellaneous",
                     "expense_name": "TEST_Transport",
-                    "amount": 200
+                    "amount": 200,
+                    "bill_file_id": "TEST_bill", "bill_filename": "bill.jpg"
                 }
             ]
         }
