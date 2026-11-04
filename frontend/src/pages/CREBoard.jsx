@@ -257,8 +257,16 @@ export default function CREBoard() {
   // same schedule as what is still to collect, one row per project with its
   // stages behind a dropdown.
   const psView = activeTab === 'top_sheet' ? 'top_sheet' : 'schedule';
-  // The Top Sheet has no month bar: it always covers every month.
-  useEffect(() => { if (activeTab === 'top_sheet') setPsAllMonths(true); }, [activeTab]);
+  // The Top Sheet is always one month at a time (its month bar has no All
+  // Months); Payment Schedule keeps its All Months choice for going back.
+  const psAllMonthsOn = psAllMonths && psView === 'schedule';
+  // Coming from All Months, the Top Sheet opens on this month.
+  useEffect(() => {
+    if (activeTab !== 'top_sheet' || !psAllMonths) return;
+    const t = new Date();
+    setPsMonth(t.getMonth() + 1);
+    setPsYear(t.getFullYear());
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
   const [psTopOpen, setPsTopOpen] = useState({});
   // Payment Schedule local quick filters (extra to the global date filter)
   const [psSearch, setPsSearch] = useState('');
@@ -310,7 +318,7 @@ export default function CREBoard() {
   useEffect(() => { fetchData(); }, []);
 
   // Payment Schedule fetcher (mirrors Planning's monthly schedule). When
-  // `psAllMonths` is on, ask the backend for every payable stage across
+  // `psAllMonthsOn` is on, ask the backend for every payable stage across
   // every month so the badge counts reflect the whole pipeline.
   // Cache-buster `_=timestamp` defeats any browser/CDN/proxy HTTP cache
   // (the backend also returns Cache-Control: no-store).
@@ -333,7 +341,7 @@ export default function CREBoard() {
     try {
       // Oct 5 2026 — a single month asks for that month's own figures
       // (month_amount / month_received), same as Planning's schedule.
-      const params = psAllMonths
+      const params = psAllMonthsOn
         ? { all_months: true, _: Date.now() }
         : { month: m, year: y, split_by_month: true, _: Date.now() };
       const r = await axios.get(`${API}/planning/monthly-schedule`, { params, signal: controller.signal });
@@ -348,7 +356,7 @@ export default function CREBoard() {
       if (psAbortRef.current === controller) setPsLoading(false);
     }
   };
-  useEffect(() => { fetchPaymentSchedule(psMonth, psYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [psMonth, psYear, psAllMonths]);
+  useEffect(() => { fetchPaymentSchedule(psMonth, psYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [psMonth, psYear, psAllMonthsOn]);
 
   // ── Bulk delete on CRE Payment Schedule ──────────────────────────────
   // Backend has a per-entry delete that handles three cases:
@@ -1497,27 +1505,27 @@ export default function CREBoard() {
                       implicitly zoom into a single month. Oct 31 2026 — phones:
                       Prev · month · Next on one line, This Month / All Months and
                       Refresh on the next (the toggle used to run off the screen).
-                      Nov 4 2026 — not on the Top Sheet, which is always All Months. */}
-                  {psView === 'schedule' && (
+                      Nov 4 2026 — on the Top Sheet too, but without All Months:
+                      it always shows one month, so it keeps This Month instead. */}
                   <Card>
                     <CardContent className="p-3">
                       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                           <Button size="sm" variant="outline" className="shrink-0" onClick={() => shiftPsMonth(-1)} data-testid="ps-prev-month">‹ Prev</Button>
                           <div className="text-center flex-1 min-w-0 sm:flex-none sm:min-w-[140px]">
                             <p className="text-lg font-bold text-gray-900" data-testid="ps-current-month">
-                              {psAllMonths ? 'All Months' : `${MONTHS[psMonth - 1]} ${psYear}`}
+                              {psAllMonthsOn ? 'All Months' : `${MONTHS[psMonth - 1]} ${psYear}`}
                             </p>
-                            <p className="text-xs text-gray-500">CRE Payment Schedule</p>
+                            <p className="text-xs text-gray-500">{psView === 'top_sheet' ? 'CRE Top Sheet' : 'CRE Payment Schedule'}</p>
                           </div>
                           <Button size="sm" variant="outline" className="shrink-0" onClick={() => shiftPsMonth(1)} data-testid="ps-next-month">Next ›</Button>
                           <div className="basis-full h-0 sm:hidden" aria-hidden="true" />
-                          {psAllMonths ? (
+                          {psAllMonthsOn || psView === 'top_sheet' ? (
                             <Button
                               size="sm"
                               variant="outline"
                               className="flex-1 sm:flex-none border-amber-300 text-amber-700 hover:bg-amber-50"
                               onClick={() => {
-                                setPsAllMonths(false);
+                                if (psView === 'schedule') setPsAllMonths(false);
                                 const t = new Date();
                                 setPsMonth(t.getMonth() + 1);
                                 setPsYear(t.getFullYear());
@@ -1543,7 +1551,6 @@ export default function CREBoard() {
                       </div>
                     </CardContent>
                   </Card>
-                  )}
 
                   {/* Summary tiles — Total Planned / Collected / To Receive.
 
@@ -1708,19 +1715,6 @@ export default function CREBoard() {
                         <Trash2 className="h-3.5 w-3.5" /> Delete Selected ({psSelected.size})
                       </Button>
                     )}
-                    {/* The Top Sheet's Refresh (it has no month bar to hold one). */}
-                    {psView === 'top_sheet' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 text-xs gap-1 w-full sm:w-auto"
-                        onClick={() => fetchPaymentSchedule()}
-                        disabled={psLoading}
-                        data-testid="ps-top-sheet-refresh"
-                      >
-                        <RefreshCw className={`h-3.5 w-3.5 ${psLoading ? 'animate-spin' : ''}`} /> Refresh
-                      </Button>
-                    )}
                   </div>
 
                   {/* Table */}
@@ -1740,7 +1734,7 @@ export default function CREBoard() {
                           </div>
                         );
                         if (topSheetProjects.length === 0) {
-                          return <p className="p-8 text-center text-sm text-gray-400" data-testid="ps-top-sheet-empty">Nothing left to collect{psAllMonths ? '' : ` for ${MONTHS[psMonth - 1]} ${psYear}`}.</p>;
+                          return <p className="p-8 text-center text-sm text-gray-400" data-testid="ps-top-sheet-empty">Nothing left to collect for {MONTHS[psMonth - 1]} {psYear}.</p>;
                         }
                         return (
                           <div className="divide-y" data-testid="ps-top-sheet">
