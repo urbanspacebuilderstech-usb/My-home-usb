@@ -409,8 +409,8 @@ export default function UserManagement() {
                   const roleInfo = getRoleInfo(u.role);
                   return (
                     <div key={u.user_id} data-testid={`user-card-mobile-${u.user_id}`} className="p-4">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3 min-w-0">
                           <span className="text-xs text-gray-400 tabular-nums w-5 text-right flex-shrink-0" data-testid={`user-sno-mobile-${u.user_id}`}>{idx + 1}</span>
                           <div className="h-10 w-10 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
                             <span className="text-amber-600 font-semibold">
@@ -418,6 +418,12 @@ export default function UserManagement() {
                             </span>
                           </div>
                           <div className="min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${roleInfo.color}`}>
+                                {roleInfo.label}
+                              </span>
+                              {u.department && <span className="text-xs text-gray-500 truncate">{u.department}</span>}
+                            </div>
                             <p className="font-medium text-gray-900 truncate">{u.name}</p>
                             <p className="text-xs text-gray-500 truncate">{u.email}</p>
                           </div>
@@ -452,12 +458,6 @@ export default function UserManagement() {
                             )}
                           </div>
                         )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${roleInfo.color}`}>
-                          {roleInfo.label}
-                        </span>
-                        {u.department && <span className="text-xs text-gray-500">{u.department}</span>}
                       </div>
                     </div>
                   );
