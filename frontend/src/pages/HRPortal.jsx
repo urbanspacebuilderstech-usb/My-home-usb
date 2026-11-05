@@ -634,7 +634,9 @@ export default function HRPortal() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4 flex flex-wrap gap-1">
+          {/* h-auto: the strip grows into extra rows on phones; at the default
+              h-9 the phone CSS clipped every tab past the first row. */}
+          <TabsList className="mb-4 flex flex-wrap h-auto gap-1 justify-start sm:justify-center">
             <TabsTrigger value="dashboard" data-testid="tab-dashboard"><TrendingUp className="h-4 w-4 mr-1" />Dashboard</TabsTrigger>
             <TabsTrigger value="employees" data-testid="tab-employees"><Users className="h-4 w-4 mr-1" />Employees</TabsTrigger>
             <TabsTrigger value="credentials" data-testid="tab-credentials"><Shield className="h-4 w-4 mr-1" />Roles & Credentials</TabsTrigger>
