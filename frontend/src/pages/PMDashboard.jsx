@@ -574,14 +574,17 @@ export default function PMDashboard() {
           <TabsContent value="requests">
             <div className="space-y-3" data-testid="pm-requests-tab">
               <Tabs defaultValue="material_requests" className="w-full">
-                <TabsList className="bg-amber-50/40 border border-amber-100 rounded-lg p-1 flex flex-wrap h-auto">
-                  <TabsTrigger value="material_requests" className="text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-material">
+                {/* Nov 5 2026 — phones: three equal tabs side by side, long labels
+                    wrap inside their own tab with the count below (was two ragged,
+                    centred rows). */}
+                <TabsList className="bg-amber-50/40 border border-amber-100 rounded-lg p-1 grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:gap-0 h-auto">
+                  <TabsTrigger value="material_requests" className="h-full flex-col sm:flex-row gap-0.5 sm:gap-0 [&>span]:ml-0 sm:[&>span]:ml-1.5 px-1.5 sm:px-3 whitespace-normal sm:whitespace-nowrap leading-tight sm:leading-normal text-center text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-material">
                     Material Requests<CountBadge count={materialRequests?.length || 0} />
                   </TabsTrigger>
-                  <TabsTrigger value="work_order_labour" className="text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-labour">
+                  <TabsTrigger value="work_order_labour" className="h-full flex-col sm:flex-row gap-0.5 sm:gap-0 [&>span]:ml-0 sm:[&>span]:ml-1.5 px-1.5 sm:px-3 whitespace-normal sm:whitespace-nowrap leading-tight sm:leading-normal text-center text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-labour">
                     Work Order / Labour (RAB)<CountBadge count={labourRequests?.length || 0} />
                   </TabsTrigger>
-                  <TabsTrigger value="petty_cash" className="text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-petty">
+                  <TabsTrigger value="petty_cash" className="h-full flex-col sm:flex-row gap-0.5 sm:gap-0 [&>span]:ml-0 sm:[&>span]:ml-1.5 px-1.5 sm:px-3 whitespace-normal sm:whitespace-nowrap leading-tight sm:leading-normal text-center text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-petty">
                     Petty Cash<CountBadge count={pendingPcCount} />
                   </TabsTrigger>
                 </TabsList>
