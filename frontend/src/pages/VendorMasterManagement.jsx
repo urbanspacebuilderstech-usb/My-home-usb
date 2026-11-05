@@ -243,23 +243,27 @@ export default function VendorMasterManagement({ embedded = false }) {
         {filtered.length === 0 ? (
           <Card><CardContent className="py-12 text-center text-gray-500">No vendors found. Click "Create Vendor" to add one.</CardContent></Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3">
             {filtered.map(v => (
               // Oct 30 2026 — min-w-0 down the card so a long name, email or
               // address wraps/truncates instead of widening the card (and the
               // whole page) past a phone screen.
+              // Nov 5 2026 — two cards a row on phones too. A card is then too
+              // narrow for the name and three buttons side by side, so below
+              // `md` the header div is `contents` and the buttons drop to an
+              // `order-last` row at the bottom of the card.
               <Card key={v.vendor_id} data-testid={`vendor-card-${v.vendor_id}`} className="min-w-0 hover:shadow-md transition-shadow cursor-pointer" onClick={() => openView(v)}>
-                <CardContent className="p-4">
-                  <div className="flex justify-between items-start gap-2 mb-2">
-                    <div className="flex items-start gap-2 min-w-0">
-                      <Building2 className="h-5 w-5 text-blue-600 flex-shrink-0" />
-                      <h3 className="font-semibold text-gray-900 min-w-0 break-words leading-snug">{v.name}</h3>
+                <CardContent className="p-3 md:p-4 h-full md:h-auto flex flex-col md:block">
+                  <div className="contents md:flex justify-between items-start gap-2 md:mb-2">
+                    <div className="flex items-start gap-1.5 md:gap-2 min-w-0 mb-2 md:mb-0">
+                      <Building2 className="h-4 w-4 md:h-5 md:w-5 mt-0.5 md:mt-0 text-blue-600 flex-shrink-0" />
+                      <h3 className="text-sm md:text-base font-semibold text-gray-900 min-w-0 break-words leading-snug">{v.name}</h3>
                     </div>
-                    <div className="flex gap-1 flex-shrink-0">
-                      <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); setBookVendor(v); }} data-testid={`vendor-book-${v.vendor_id}`} title="Vendor Book" className="text-amber-700 hover:bg-amber-50">
+                    <div className="order-last mt-auto pt-2 border-t md:order-none md:mt-0 md:pt-0 md:border-0 flex justify-between md:justify-start gap-1 flex-shrink-0">
+                      <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); setBookVendor(v); }} data-testid={`vendor-book-${v.vendor_id}`} title="Vendor Book" className="w-8 p-0 md:w-auto md:px-3 text-amber-700 hover:bg-amber-50">
                         <FileText className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); openEdit(v); }} data-testid={`edit-vendor-${v.vendor_id}`} title="Edit vendor">
+                      <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); openEdit(v); }} data-testid={`edit-vendor-${v.vendor_id}`} title="Edit vendor" className="w-8 p-0 md:w-auto md:px-3">
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
                       <Button
@@ -267,14 +271,14 @@ export default function VendorMasterManagement({ embedded = false }) {
                         size="sm"
                         onClick={e => { e.stopPropagation(); handleDelete(v.vendor_id); }}
                         data-testid={`delete-vendor-${v.vendor_id}`}
-                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                        className="w-8 p-0 md:w-auto md:px-3 text-red-600 hover:bg-red-50 hover:text-red-700"
                         title="Delete vendor"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
-                  {v.vendor_type && <Badge variant="outline" className="mb-2 text-xs">{v.vendor_type}</Badge>}
+                  {v.vendor_type && <Badge variant="outline" className="self-start mb-2 text-xs">{v.vendor_type}</Badge>}
                   <div className="space-y-1 text-xs text-gray-500">
                     {v.contact_person && <p className="break-words">{v.contact_person}</p>}
                     {v.phone && <p className="flex items-center gap-1"><Phone className="h-3 w-3 flex-shrink-0" />{v.phone}</p>}
@@ -289,7 +293,7 @@ export default function VendorMasterManagement({ embedded = false }) {
                       {v.brands.length > 3 && <Badge variant="secondary" className="text-[10px]">+{v.brands.length - 3} more</Badge>}
                     </div>
                   )}
-                  <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <div className="mt-3 mb-2 md:mb-0 flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs">
                     <span className="text-gray-400 min-w-0 truncate">{v.payment_cycle?.replace('_', ' ') || v.payment_terms}</span>
                     {v.gst_number && <span className="text-green-600 font-mono text-[10px]">GST: {v.gst_number.slice(0, 6)}...</span>}
                   </div>
