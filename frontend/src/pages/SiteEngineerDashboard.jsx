@@ -52,6 +52,7 @@ import {
   Search
 } from 'lucide-react';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { NumericInput } from '../components/NumericInput';
 import { AppHeader } from '../components/AppHeader';
 import { StatusPill, pillState } from '../components/StatusPill';
@@ -67,6 +68,15 @@ import 'leaflet/dist/leaflet.css';
 // `onOpen` shows a photo bill in the in-page viewer; with no file on record
 // (filename only) the icon is greyed out.
 const isPdfBill = (filename) => /\.pdf$/i.test(filename || '');
+// Stage pill colours for a recorded-expense item (Payment Req Status ›
+// Record Expense, table row and phone card).
+const expenseStageCls = (stage) => (
+  stage === 'Awaiting PM' ? 'bg-amber-100 text-amber-800 border-amber-200'
+    : stage === 'Awaiting Accountant' ? 'bg-cyan-100 text-cyan-800 border-cyan-200'
+    : stage === 'Approved' ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+    : 'bg-red-100 text-red-800 border-red-200'
+);
+
 function BillEye({ fileId, filename, onOpen, testId }) {
   if (!fileId) {
     return (
@@ -328,6 +338,7 @@ function MiniCashbookSection({ projects }) {
 }
 
 export default function SiteEngineerDashboard() {
+  const isMobile = useIsMobile();
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
   // Project search query — drives the Sr. SE / Super Admin table filter.
@@ -443,6 +454,35 @@ export default function SiteEngineerDashboard() {
       index: Math.max(0, photos.findIndex(b => b.fileId === fileId)),
     });
   };
+  // Nov 5 2026 — phone card for one recorded-expense item, used instead of
+  // the 7-column Date/Project/Category/Expense/Bill/Amount/Stage tables
+  // (Payment Req Status › Record Expense and Exp Waiting A/C), which cut
+  // off Amount and Stage on a phone.
+  const expenseItemCard = (row, { key, testId, billTestId, amountCls, stage, stageCls }) => (
+    <div key={key} className="border rounded-lg bg-white p-3" data-testid={testId}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-800 break-words">{row.expense_name || '—'}</p>
+          <p className="text-xs text-gray-500 break-words">{row.project_name || '—'} · {row.category || '—'}</p>
+        </div>
+        <p className={`text-sm font-semibold whitespace-nowrap ${amountCls}`}>₹{Number(row.amount || 0).toLocaleString('en-IN')}</p>
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] text-gray-400">{row.created_at ? new Date(row.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</span>
+        <div className="flex items-center gap-2">
+          {row.bill_file_id && (
+            <BillEye
+              fileId={row.bill_file_id}
+              filename={row.bill_filename}
+              testId={billTestId}
+              onOpen={() => openBill([{ fileId: row.bill_file_id, filename: row.bill_filename, label: row.expense_name || 'Bill' }], row.bill_file_id)}
+            />
+          )}
+          <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full border ${stageCls}`}>{stage}</span>
+        </div>
+      </div>
+    </div>
+  );
   const [directExpenseDialog, setDirectExpenseDialog] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState(null);
   // Feb 28 2026 — Picked petty_cash bucket the SE wants to record this
@@ -2363,6 +2403,17 @@ export default function SiteEngineerDashboard() {
                             <Receipt className="h-10 w-10 mx-auto mb-2 opacity-40" />
                             <p className="text-sm">{pcStatusFilter === 'all' ? 'No recorded expenses' : 'Nothing matches this filter'}</p>
                           </div>
+                        ) : isMobile ? (
+                          <div className="space-y-2" data-testid="req-status-expense-list">
+                            {filteredExp.map((row, idx) => expenseItemCard(row, {
+                              key: `${row.direct_expense_id}-${row.item_id || idx}`,
+                              testId: `req-status-exp-row-${idx}`,
+                              billTestId: `req-status-exp-bill-${idx}`,
+                              amountCls: 'text-orange-800',
+                              stage: row.stage,
+                              stageCls: expenseStageCls(row.stage),
+                            }))}
+                          </div>
                         ) : (
                           <div className="overflow-x-auto border rounded-lg" data-testid="req-status-expense-list">
                             <table className="w-full text-sm">
@@ -2379,7 +2430,6 @@ export default function SiteEngineerDashboard() {
                               </thead>
                               <tbody>
                                 {filteredExp.map((row, idx) => {
-                                  const isPM = row.stage === 'Awaiting PM';
                                   return (
                                     <tr key={`${row.direct_expense_id}-${row.item_id || idx}`} className="border-b hover:bg-gray-50" data-testid={`req-status-exp-row-${idx}`}>
                                       <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">{row.created_at ? new Date(row.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
@@ -2400,12 +2450,7 @@ export default function SiteEngineerDashboard() {
                                       </td>
                                       <td className="px-3 py-2 text-xs text-right font-semibold text-orange-800">₹{Number(row.amount || 0).toLocaleString('en-IN')}</td>
                                       <td className="px-3 py-2">
-                                        <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full border ${
-                                          isPM ? 'bg-amber-100 text-amber-800 border-amber-200'
-                                               : row.stage === 'Awaiting Accountant' ? 'bg-cyan-100 text-cyan-800 border-cyan-200'
-                                               : row.stage === 'Approved' ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                               : 'bg-red-100 text-red-800 border-red-200'
-                                        }`}>{row.stage}</span>
+                                        <span className={`inline-block text-[10px] px-2 py-0.5 rounded-full border ${expenseStageCls(row.stage)}`}>{row.stage}</span>
                                       </td>
                                     </tr>
                                   );
@@ -2424,6 +2469,31 @@ export default function SiteEngineerDashboard() {
               <TabsContent value="income_history">
                 {incomeHistory.length === 0 ? (
                   <div className="text-center py-8 text-gray-400"><IndianRupee className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No income history yet</p></div>
+                ) : isMobile ? (
+                  // Nov 5 2026 — phones: one card per issue, the four amounts
+                  // in a row, instead of the 7-column table.
+                  <div className="space-y-2" data-testid="income-history-cards">
+                    {incomeHistory.map((r, idx) => {
+                      const req = Number(r.amount_issued || 0);
+                      const spent = Number(r.amount_spent || 0);
+                      const expWaiting = Number(r.exp_waiting_amount || 0);
+                      const balance = Math.max(0, req - spent - expWaiting);
+                      return (
+                        <div key={r.petty_cash_id} className="border rounded-lg bg-white p-3" data-testid={`income-row-${idx}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-sm text-gray-800 min-w-0 break-words"><span className="text-gray-400">{idx + 1}.</span> {r.purpose}</p>
+                            <span className="text-[11px] text-gray-400 whitespace-nowrap">{new Date(r.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+                            <div className="min-w-0"><p className="text-[10px] text-gray-400 leading-tight">Req Amount</p><p className="text-xs font-semibold text-green-700 break-all">₹{req.toLocaleString('en-IN')}</p></div>
+                            <div className="min-w-0"><p className="text-[10px] text-gray-400 leading-tight">Exp Waiting</p><p className="text-xs font-semibold text-cyan-700 break-all" data-testid={`income-row-exp-waiting-${idx}`}>₹{expWaiting.toLocaleString('en-IN')}</p></div>
+                            <div className="min-w-0"><p className="text-[10px] text-gray-400 leading-tight">Spent</p><p className="text-xs text-red-600 break-all">₹{spent.toLocaleString('en-IN')}</p></div>
+                            <div className="min-w-0"><p className="text-[10px] text-gray-400 leading-tight">Balance</p><p className="text-xs font-semibold text-blue-700 break-all">₹{balance.toLocaleString('en-IN')}</p></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <div className="overflow-x-auto border rounded-lg">
                     <table className="w-full text-sm" data-testid="income-history-table">
@@ -2597,6 +2667,17 @@ export default function SiteEngineerDashboard() {
                         <div className="text-center py-8 text-gray-400">
                           <Receipt className="h-10 w-10 mx-auto mb-2 opacity-40" />
                           <p className="text-sm">No expenses waiting with the Accountant.</p>
+                        </div>
+                      ) : isMobile ? (
+                        <div className="space-y-2" data-testid="exp-waiting-cards">
+                          {flat.map((row, idx) => expenseItemCard(row, {
+                            key: `${row.expense_id}-${row.item_id || idx}`,
+                            testId: `exp-waiting-row-${idx}`,
+                            billTestId: `exp-waiting-bill-${idx}`,
+                            amountCls: 'text-cyan-800',
+                            stage: 'Awaiting Accountant',
+                            stageCls: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+                          }))}
                         </div>
                       ) : (
                         <div className="overflow-x-auto border rounded-lg">
