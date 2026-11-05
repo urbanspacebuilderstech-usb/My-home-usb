@@ -53,6 +53,8 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // Nov 2 2026 — "Projects" (/projects) removed from More at the user's request:
 // that page forwards Super Admin to the Planning Board's All Projects list,
 // so it just duplicated the Planning button (desktop has no Projects item).
+// Nov 5 2026 — "GM Dashboard" and "Users" removed from More at the user's
+// request; desktop has neither, and Users is HR Admin's Users tab.
 const SA_BOTTOM = [
   { label: 'Dashboard', icon: LayoutDashboard, path: '/super-admin-dashboard' },
   { label: 'Finance', icon: IndianRupee, path: '/finance-board' },
@@ -66,8 +68,6 @@ const SA_MORE_ITEMS = [
   { label: 'Marketing Board', icon: TrendingUp, path: '/marketing-board' },
   { label: 'HR', icon: Users, path: '/hr-portal' },
   { label: 'Settings', icon: Settings, path: '/settings' },
-  { label: 'GM Dashboard', icon: Shield, path: '/gm-dashboard' },
-  { label: 'Users', icon: Users, path: '/users' },
   { label: 'Notifications', icon: Bell, path: '/notifications' },
 ];
 
