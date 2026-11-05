@@ -3218,6 +3218,15 @@ function MaterialVendorsTab() {
       toast.error(e.response?.data?.detail || 'Toggle failed');
     }
   };
+  // Status pill doubles as the Active/Inactive toggle (table row + phone card)
+  const materialStatusBtn = (m, testId) => {
+    const isActive = m.is_active !== false;
+    return (
+      <button onClick={() => toggleMaterialActive(m)} className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} data-testid={testId}>
+        {isActive ? 'Active' : 'Inactive'}
+      </button>
+    );
+  };
 
   const save = async () => {
     setSaving(true);
@@ -3283,7 +3292,27 @@ function MaterialVendorsTab() {
           {loading ? <p className="text-center text-xs text-gray-400 py-10">Loading…</p>
           : (
             filteredMaterials.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No materials</p> : (
-              <div className="overflow-x-auto">
+              <>
+              {/* Phones: one card per material instead of the wide table */}
+              <div className="md:hidden divide-y" data-testid="proc-materials-cards">
+                {filteredMaterials.map(m => (
+                  <div key={m.material_id} className="p-3 space-y-2 min-w-0" data-testid={`proc-material-card-${m.material_id}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium text-gray-900 break-words min-w-0">{m.name}</p>
+                      <span className="flex-shrink-0">{materialStatusBtn(m, `proc-material-card-toggle-${m.material_id}`)}</span>
+                    </div>
+                    <div className="flex items-end justify-between gap-2">
+                      <div className="grid grid-cols-3 gap-2 text-xs flex-1 min-w-0">
+                        <div className="min-w-0"><p className="text-[10px] text-gray-500">Category</p><p className="text-gray-800 break-words">{m.category || '—'}</p></div>
+                        <div className="min-w-0"><p className="text-[10px] text-gray-500">Unit</p><p className="text-gray-800 break-words">{m.unit || '—'}</p></div>
+                        <div className="min-w-0"><p className="text-[10px] text-gray-500">Std Rate</p><p className="text-gray-800 break-words">{m.standard_rate ? fmt(m.standard_rate) : '—'}</p></div>
+                      </div>
+                      <Button size="sm" variant="outline" className="h-7 px-3 text-xs border-amber-200 text-amber-700 hover:bg-amber-50 flex-shrink-0" onClick={() => openEditMaterial(m)} data-testid={`proc-material-card-edit-${m.material_id}`}>Edit</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-100 border-y">
                     <tr>
@@ -3296,28 +3325,24 @@ function MaterialVendorsTab() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {filteredMaterials.map(m => {
-                      const isActive = m.is_active !== false;
-                      return (
+                    {filteredMaterials.map(m => (
                       <tr key={m.material_id} className="hover:bg-gray-50" data-testid={`proc-material-${m.material_id}`}>
                         <td className="px-3 py-2 font-medium">{m.name}</td>
                         <td className="px-3 py-2 text-gray-700">{m.category || '—'}</td>
                         <td className="px-3 py-2 text-gray-700">{m.unit || '—'}</td>
                         <td className="px-3 py-2 text-right">{m.standard_rate ? fmt(m.standard_rate) : '—'}</td>
                         <td className="px-3 py-2 text-center">
-                          <button onClick={() => toggleMaterialActive(m)} className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'}`} data-testid={`proc-material-toggle-${m.material_id}`}>
-                            {isActive ? 'Active' : 'Inactive'}
-                          </button>
+                          {materialStatusBtn(m, `proc-material-toggle-${m.material_id}`)}
                         </td>
                         <td className="px-3 py-2 text-right">
                           <button onClick={() => openEditMaterial(m)} className="text-amber-700 hover:underline text-xs" data-testid={`proc-material-edit-${m.material_id}`}>Edit</button>
                         </td>
                       </tr>
-                      );
-                    })}
+                    ))}
                   </tbody>
                 </table>
               </div>
+              </>
             )
           )}
         </CardContent>
