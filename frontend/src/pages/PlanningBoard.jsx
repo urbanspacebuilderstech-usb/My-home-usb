@@ -78,6 +78,7 @@ const seOutIcon = L.divIcon({
   iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -10]
 });
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { useIsMobile } from '../hooks/useIsMobile';
 import REProjectsPage from './REProjectsPage';
 import { NumericInput } from '../components/NumericInput';
 import LabourContractorPaymentSummary from '../components/LabourContractorPaymentSummary';
@@ -299,6 +300,7 @@ const scheduleEntryStatus = (e) => {
 
 export default function PlanningBoard({ embedded = false }) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   // Super-Admin Payment Stage detail popup state (used in the Monthly Schedule)
@@ -1478,7 +1480,7 @@ export default function PlanningBoard({ embedded = false }) {
             {/* ---- Dashboard > All Projects ---- */}
             {dashSubTab === 'all_projects' && (
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-indigo-600" />All Projects
@@ -1495,7 +1497,7 @@ export default function PlanningBoard({ embedded = false }) {
                     <button
                       key={tab.key}
                       onClick={() => handleProjectSubTabChange(tab.key)}
-                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                      className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                         projectSubTab === tab.key
                           ? 'border-indigo-600 text-indigo-700 bg-indigo-50'
                           : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
@@ -1504,7 +1506,7 @@ export default function PlanningBoard({ embedded = false }) {
                     >
                       {tab.label}
                       <span
-                        className={`ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-semibold border ${tab.badgeCls}`}
+                        className={`ml-1.5 sm:ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-semibold border ${tab.badgeCls}`}
                         data-testid={`subtab-${tab.key}-count`}
                       >
                         {projectSubTab === tab.key ? subTabProjects.length : (subTabCounts[tab.key] ?? 0)}
@@ -1566,12 +1568,14 @@ export default function PlanningBoard({ embedded = false }) {
                     </div>
                   )}
 
-                  <div className="ml-auto flex items-center gap-2 flex-wrap">
+                  {/* Phones: the filters and search below each take a full row
+                      instead of floating right under the date filter. */}
+                  <div className="w-full sm:w-auto sm:ml-auto flex flex-col sm:flex-row sm:items-center gap-2 sm:flex-wrap">
                     {/* Planning Team filter — keeps Planning Head's existing team-wise slicing */}
                     {user?.role !== 'planning_person' && (
                       <>
                         <Select value={planningPersonFilter} onValueChange={setPlanningPersonFilter}>
-                          <SelectTrigger className="h-8 w-44 text-xs" data-testid="planning-person-filter">
+                          <SelectTrigger className="h-8 w-full sm:w-44 text-xs" data-testid="planning-person-filter">
                             <SelectValue placeholder="Planning Team" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1584,7 +1588,7 @@ export default function PlanningBoard({ embedded = false }) {
                         </Select>
 
                         {/* Workload search — type any team member to see their projects */}
-                        <div className="relative" data-testid="team-member-search-wrap">
+                        <div className="relative w-full sm:w-auto" data-testid="team-member-search-wrap">
                           <Users className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
                           <Input
                             value={teamMemberFilterUserId
@@ -1598,7 +1602,7 @@ export default function PlanningBoard({ embedded = false }) {
                             onFocus={() => setShowTeamSuggestions(true)}
                             onBlur={() => setTimeout(() => setShowTeamSuggestions(false), 200)}
                             placeholder="Filter by Team Member…"
-                            className="pl-8 pr-7 h-8 w-56 text-xs"
+                            className="pl-8 pr-7 h-8 w-full sm:w-56 text-xs"
                             data-testid="team-member-search-input"
                           />
                           {teamMemberFilterUserId && (
@@ -1641,9 +1645,9 @@ export default function PlanningBoard({ embedded = false }) {
                       </>
                     )}
 
-                    <div className="relative">
+                    <div className="relative w-full sm:w-auto">
                       <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
-                      <Input placeholder="Search projects..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" />
+                      <Input placeholder="Search projects..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-full sm:w-48 text-sm" data-testid="project-search" />
                     </div>
                   </div>
                 </div>
@@ -1674,247 +1678,308 @@ export default function PlanningBoard({ embedded = false }) {
                 })()}
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm" data-testid="projects-table">
-                    <thead className="bg-gray-50 border-y">
-                      <tr>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Phase</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                        {projectSubTab !== 'archived' && (
-                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Planning Team</th>
-                        )}
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {subTabLoading && subTabProjects.length === 0 ? (
-                        // Skeleton rows while first-load is in flight
-                        Array.from({ length: 5 }).map((_, i) => (
-                          <tr key={`sk-${i}`} className="animate-pulse" data-testid={`skeleton-row-${i}`}>
-                            <td className="px-4 py-3"><div className="h-3 w-32 bg-gray-200 rounded" /><div className="h-2.5 w-20 bg-gray-100 rounded mt-1.5" /></td>
-                            <td className="px-4 py-3"><div className="h-3 w-24 bg-gray-200 rounded" /></td>
-                            <td className="px-4 py-3"><div className="h-5 w-20 bg-gray-200 rounded mx-auto" /></td>
-                            <td className="px-4 py-3"><div className="h-5 w-16 bg-gray-200 rounded mx-auto" /></td>
-                            <td className="px-4 py-3"><div className="h-3 w-16 bg-gray-200 rounded" /></td>
-                            {projectSubTab !== 'archived' && (
-                              <td className="px-4 py-3"><div className="h-3 w-24 bg-gray-200 rounded" /></td>
+                {(() => {
+                  // Resolve the selected team member to ALL their user_ids
+                  // (a person can appear with multiple aliases — HR-created
+                  //  vs Sales-created — sharing one name+role).
+                  const selectedUser = teamMemberFilterUserId
+                    ? allTeamUsers.find(u => u.user_id === teamMemberFilterUserId)
+                    : null;
+                  const selectedIds = selectedUser
+                    ? (Array.isArray(selectedUser.aliases) && selectedUser.aliases.length ? selectedUser.aliases : [selectedUser.user_id])
+                    : [];
+                  // Project ↔ user match across every known team relationship
+                  const projectIncludesUser = (p) => {
+                    if (!selectedIds.length) return true;
+                    const t = p.team || {};
+                    const teamRoles = ['architect', 'project_manager', 'planning_person', 'sr_site_engineer', 'site_engineer', 'cre', 'qc', 'procurement'];
+                    const teamMatch = teamRoles.some(role => selectedIds.includes(t[role]));
+                    const directMatch = (
+                      selectedIds.includes(p.assigned_planning_person_id) ||
+                      selectedIds.includes(p.assigned_to) ||
+                      selectedIds.includes(p.project_manager_id) ||
+                      selectedIds.includes(p.architect_id) ||
+                      selectedIds.includes(p.cre_user_id) ||
+                      (Array.isArray(p.team_members) && p.team_members.some(uid => selectedIds.includes(uid)))
+                    );
+                    return teamMatch || directMatch;
+                  };
+                  const filtered = subTabProjects.filter(p =>
+                    (!projectSearch ||
+                      (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) ||
+                      (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase()))
+                    && projectIncludesUser(p)
+                  );
+                  const firstLoad = subTabLoading && subTabProjects.length === 0;
+                  const emptyText = teamMemberFilterUserId ? 'No projects found for this team member' :
+                    projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : projectSubTab === 'archived' ? 'No archived projects' : 'No delivered projects';
+
+                  // Nov 5 2026 — shared by the table row and the phone card.
+                  const projectDate = (p) => (
+                    projectSubTab === 'new' && p.planning_new_date ? new Date(p.planning_new_date).toLocaleDateString('en-IN') :
+                    projectSubTab === 'active' && p.planning_active_date ? new Date(p.planning_active_date).toLocaleDateString('en-IN') :
+                    projectSubTab === 'delivered' && p.planning_delivered_date ? new Date(p.planning_delivered_date).toLocaleDateString('en-IN') :
+                    projectSubTab === 'archived' && p.archived_at ? new Date(p.archived_at).toLocaleDateString('en-IN') :
+                    p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '-'
+                  );
+                  // The critical dot is inline after the last word, so a name
+                  // that wraps on a phone card keeps the dot beside it.
+                  const projectName = (p) => (
+                    <p className="font-medium break-words">
+                      {p.name}
+                      {p.is_critical && (
+                        <span className="inline-flex align-middle ml-1.5">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-red-500 ring-2 ring-red-200 hover:bg-red-600 transition-all"
+                              title="Critical — click to view notes"
+                              data-testid={`critical-btn-${p.project_id}`}
+                            >
+                              <span className="block h-1.5 w-1.5 rounded-full bg-white" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-72 p-3" align="start" data-testid={`critical-popover-${p.project_id}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="text-sm font-semibold flex items-center gap-1.5">
+                                <span className="h-2.5 w-2.5 rounded-full bg-red-500"></span>
+                                Marked Critical
+                              </h4>
+                              <Badge variant="destructive" className="text-[10px]">Active</Badge>
+                            </div>
+                            <p className="text-xs text-gray-700 whitespace-pre-wrap bg-red-50 border border-red-100 rounded p-2 min-h-[60px]">
+                              {p.critical_notes || <span className="text-gray-400 italic">No reason recorded</span>}
+                            </p>
+                            {p.critical_marked_by_name && (
+                              <p className="text-[10px] text-gray-400 mt-1.5">
+                                Marked by {p.critical_marked_by_name}
+                                {p.critical_marked_at ? ` • ${new Date(p.critical_marked_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : ''}
+                              </p>
                             )}
-                            <td className="px-4 py-3"><div className="h-7 w-24 bg-gray-200 rounded mx-auto" /></td>
-                          </tr>
+                            <p className="text-[10px] text-gray-400 mt-2">Open the project to edit or unmark.</p>
+                          </PopoverContent>
+                        </Popover>
+                        </span>
+                      )}
+                    </p>
+                  );
+                  const planningTeam = (p, widthCls) => (
+                    user?.role === 'planning_person' ? (
+                      <span className="text-xs font-medium text-gray-700">{p.assigned_planning_person_name || '—'}</span>
+                    ) : (
+                      <Select
+                        value={p.assigned_planning_person_id || ''}
+                        onValueChange={(val) => handleAssignPlanningPerson(p.project_id, val === '__unassign__' ? '' : val)}
+                      >
+                        <SelectTrigger className={`h-8 ${widthCls} text-xs ${p.assigned_planning_person_id ? 'border-indigo-200 bg-indigo-50' : 'border-dashed text-gray-500'}`} data-testid={`assign-pp-${p.project_id}`}>
+                          <SelectValue placeholder="+ Assign">
+                            {p.assigned_planning_person_name || '+ Assign'}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {planningPersons.length === 0 ? (
+                            <div className="px-3 py-2 text-xs text-gray-400">No Planning Persons yet — create via HR Portal</div>
+                          ) : (
+                            <>
+                              {p.assigned_planning_person_id && (
+                                <SelectItem value="__unassign__" data-testid={`unassign-pp-${p.project_id}`}>— Unassign —</SelectItem>
+                              )}
+                              {planningPersons.map(pp => (
+                                <SelectItem key={pp.user_id} value={pp.user_id}>{pp.name || pp.email}</SelectItem>
+                              ))}
+                            </>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )
+                  );
+                  const projectActions = (p) => (
+                    <>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${p.project_id}`}>
+                        <Eye className="h-3 w-3 mr-1" />View
+                      </Button>
+                      {projectSubTab === 'new' && (
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                          onClick={() => handlePlanningStatusChange(p.project_id, 'active')}
+                          data-testid={`ready-to-construction-${p.project_id}`}
+                        >
+                          <ArrowRight className="h-3 w-3 mr-1" />Ready to Construction
+                        </Button>
+                      )}
+                      {projectSubTab === 'active' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-indigo-700 hover:bg-indigo-50 border border-indigo-200"
+                          onClick={() => {
+                            if (window.confirm(`Move "${p.name}" back to New Projects?`)) {
+                              handlePlanningStatusChange(p.project_id, 'new');
+                            }
+                          }}
+                          data-testid={`move-to-new-${p.project_id}`}
+                          title="Move this project back to New Projects"
+                        >
+                          ↩ Move to New
+                        </Button>
+                      )}
+                      {projectSubTab === 'delivered' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-amber-700 hover:bg-amber-50 border border-amber-200"
+                          onClick={() => {
+                            if (window.confirm(`Move "${p.name}" back to Current Projects?`)) {
+                              handlePlanningStatusChange(p.project_id, 'active');
+                            }
+                          }}
+                          data-testid={`move-to-current-${p.project_id}`}
+                          title="Move this project back to Current Projects"
+                        >
+                          ↩ Move to Current
+                        </Button>
+                      )}
+                      {projectSubTab !== 'archived' && user?.role === 'super_admin' && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-amber-700 hover:bg-amber-50"
+                          onClick={() => openArchiveDialog(p.project_id, p.name)}
+                          data-testid={`archive-${p.project_id}`}
+                          title="Archive project (Super Admin only — requires email OTP)"
+                        >
+                          📦 Archive
+                        </Button>
+                      )}
+                      {projectSubTab === 'archived' && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs text-emerald-700 hover:bg-emerald-50"
+                            onClick={() => handleUnarchiveProject(p.project_id, p.name)}
+                            data-testid={`unarchive-${p.project_id}`}
+                          >
+                            ↩ Restore
+                          </Button>
+                          {(user?.role === 'planning' || user?.role === 'super_admin') && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-red-600 hover:bg-red-50"
+                              onClick={() => handleDeleteArchivedProject(p.project_id, p.name)}
+                              data-testid={`delete-archived-${p.project_id}`}
+                            >
+                              🗑 Delete
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </>
+                  );
+
+                  // Phones: one card per project instead of the wide table,
+                  // which cut off Date, Planning Team and Actions.
+                  if (isMobile) return (
+                    <div className="divide-y border-t" data-testid="projects-cards">
+                      {firstLoad ? (
+                        Array.from({ length: 3 }).map((_, i) => (
+                          <div key={`sk-${i}`} className="p-4 space-y-2 animate-pulse">
+                            <div className="h-3 w-32 bg-gray-200 rounded" />
+                            <div className="h-2.5 w-20 bg-gray-100 rounded" />
+                            <div className="h-7 w-24 bg-gray-200 rounded" />
+                          </div>
                         ))
-                      ) : (() => {
-                          // Resolve the selected team member to ALL their user_ids
-                          // (a person can appear with multiple aliases — HR-created
-                          //  vs Sales-created — sharing one name+role).
-                          const selectedUser = teamMemberFilterUserId
-                            ? allTeamUsers.find(u => u.user_id === teamMemberFilterUserId)
-                            : null;
-                          const selectedIds = selectedUser
-                            ? (Array.isArray(selectedUser.aliases) && selectedUser.aliases.length ? selectedUser.aliases : [selectedUser.user_id])
-                            : [];
-                          // Project ↔ user match across every known team relationship
-                          const projectIncludesUser = (p) => {
-                            if (!selectedIds.length) return true;
-                            const t = p.team || {};
-                            const teamRoles = ['architect', 'project_manager', 'planning_person', 'sr_site_engineer', 'site_engineer', 'cre', 'qc', 'procurement'];
-                            const teamMatch = teamRoles.some(role => selectedIds.includes(t[role]));
-                            const directMatch = (
-                              selectedIds.includes(p.assigned_planning_person_id) ||
-                              selectedIds.includes(p.assigned_to) ||
-                              selectedIds.includes(p.project_manager_id) ||
-                              selectedIds.includes(p.architect_id) ||
-                              selectedIds.includes(p.cre_user_id) ||
-                              (Array.isArray(p.team_members) && p.team_members.some(uid => selectedIds.includes(uid)))
-                            );
-                            return teamMatch || directMatch;
-                          };
-                          const filtered = subTabProjects.filter(p =>
-                            (!projectSearch ||
-                              (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) ||
-                              (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase()))
-                            && projectIncludesUser(p)
-                          );
-                          if (filtered.length === 0) return (
-                            <tr><td colSpan={projectSubTab === 'archived' ? 5 : 6} className="p-8 text-center text-gray-400">
-                              {teamMemberFilterUserId ? 'No projects found for this team member' :
-                                projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : projectSubTab === 'archived' ? 'No archived projects' : 'No delivered projects'}
-                            </td></tr>
-                          );
-                          return filtered.map((p) => (
+                      ) : filtered.length === 0 ? (
+                        <div className="p-8 text-center text-sm text-gray-400">{emptyText}</div>
+                      ) : filtered.map((p) => (
+                        <div key={p.project_id} className="p-4 space-y-3" data-testid={`project-card-${p.project_id}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 text-sm">
+                              {projectName(p)}
+                              <p className="text-xs text-gray-400">{p.location || p.project_code || '-'}</p>
+                            </div>
+                            <div className="flex-shrink-0">{getPhaseBadge(p.current_stage || 'yet_to_start')}</div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                            <div className="min-w-0">
+                              <p className="text-gray-400">Client</p>
+                              <p className="text-gray-700 break-words">{p.client_name || '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400">Date</p>
+                              <p className="text-gray-700">{projectDate(p)}</p>
+                            </div>
+                            {projectSubTab !== 'archived' && (
+                              <div className={user?.role === 'planning_person' ? 'min-w-0' : 'col-span-2'}>
+                                <p className="text-gray-400 mb-0.5">Planning Team</p>
+                                {planningTeam(p, 'w-full')}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">{projectActions(p)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm" data-testid="projects-table">
+                        <thead className="bg-gray-50 border-y">
+                          <tr>
+                            <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                            <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Phase</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                            {projectSubTab !== 'archived' && (
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Planning Team</th>
+                            )}
+                            <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {firstLoad ? (
+                            // Skeleton rows while first-load is in flight
+                            Array.from({ length: 5 }).map((_, i) => (
+                              <tr key={`sk-${i}`} className="animate-pulse" data-testid={`skeleton-row-${i}`}>
+                                <td className="px-4 py-3"><div className="h-3 w-32 bg-gray-200 rounded" /><div className="h-2.5 w-20 bg-gray-100 rounded mt-1.5" /></td>
+                                <td className="px-4 py-3"><div className="h-3 w-24 bg-gray-200 rounded" /></td>
+                                <td className="px-4 py-3"><div className="h-5 w-20 bg-gray-200 rounded mx-auto" /></td>
+                                <td className="px-4 py-3"><div className="h-5 w-16 bg-gray-200 rounded mx-auto" /></td>
+                                <td className="px-4 py-3"><div className="h-3 w-16 bg-gray-200 rounded" /></td>
+                                {projectSubTab !== 'archived' && (
+                                  <td className="px-4 py-3"><div className="h-3 w-24 bg-gray-200 rounded" /></td>
+                                )}
+                                <td className="px-4 py-3"><div className="h-7 w-24 bg-gray-200 rounded mx-auto" /></td>
+                              </tr>
+                            ))
+                          ) : filtered.length === 0 ? (
+                            <tr><td colSpan={projectSubTab === 'archived' ? 5 : 6} className="p-8 text-center text-gray-400">{emptyText}</td></tr>
+                          ) : filtered.map((p) => (
                             <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
                               <td className="px-4 py-2.5">
-                                <div className="flex items-center gap-1.5">
-                                  <p className="font-medium">{p.name}</p>
-                                  {p.is_critical && (
-                                    <Popover>
-                                      <PopoverTrigger asChild>
-                                        <button
-                                          type="button"
-                                          className="flex h-4 w-4 items-center justify-center rounded-full bg-red-500 ring-2 ring-red-200 hover:bg-red-600 transition-all"
-                                          title="Critical — click to view notes"
-                                          data-testid={`critical-btn-${p.project_id}`}
-                                        >
-                                          <span className="block h-1.5 w-1.5 rounded-full bg-white" />
-                                        </button>
-                                      </PopoverTrigger>
-                                      <PopoverContent className="w-72 p-3" align="start" data-testid={`critical-popover-${p.project_id}`}>
-                                        <div className="flex items-center justify-between mb-2">
-                                          <h4 className="text-sm font-semibold flex items-center gap-1.5">
-                                            <span className="h-2.5 w-2.5 rounded-full bg-red-500"></span>
-                                            Marked Critical
-                                          </h4>
-                                          <Badge variant="destructive" className="text-[10px]">Active</Badge>
-                                        </div>
-                                        <p className="text-xs text-gray-700 whitespace-pre-wrap bg-red-50 border border-red-100 rounded p-2 min-h-[60px]">
-                                          {p.critical_notes || <span className="text-gray-400 italic">No reason recorded</span>}
-                                        </p>
-                                        {p.critical_marked_by_name && (
-                                          <p className="text-[10px] text-gray-400 mt-1.5">
-                                            Marked by {p.critical_marked_by_name}
-                                            {p.critical_marked_at ? ` • ${new Date(p.critical_marked_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : ''}
-                                          </p>
-                                        )}
-                                        <p className="text-[10px] text-gray-400 mt-2">Open the project to edit or unmark.</p>
-                                      </PopoverContent>
-                                    </Popover>
-                                  )}
-                                </div>
+                                {projectName(p)}
                                 <p className="text-xs text-gray-400">{p.location || p.project_code || '-'}</p>
                               </td>
                               <td className="px-4 py-2.5 text-gray-600">{p.client_name || '-'}</td>
                               <td className="px-4 py-2.5 text-center">{getPhaseBadge(p.current_stage || 'yet_to_start')}</td>
-                              <td className="px-4 py-2.5 text-xs text-gray-500">
-                                {projectSubTab === 'new' && p.planning_new_date ? new Date(p.planning_new_date).toLocaleDateString('en-IN') :
-                                 projectSubTab === 'active' && p.planning_active_date ? new Date(p.planning_active_date).toLocaleDateString('en-IN') :
-                                 projectSubTab === 'delivered' && p.planning_delivered_date ? new Date(p.planning_delivered_date).toLocaleDateString('en-IN') :
-                                 projectSubTab === 'archived' && p.archived_at ? new Date(p.archived_at).toLocaleDateString('en-IN') :
-                                 p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '-'}
-                              </td>
+                              <td className="px-4 py-2.5 text-xs text-gray-500">{projectDate(p)}</td>
                               {projectSubTab !== 'archived' && (
-                                <td className="px-4 py-2.5">
-                                  {user?.role === 'planning_person' ? (
-                                    <span className="text-xs font-medium text-gray-700">{p.assigned_planning_person_name || '—'}</span>
-                                  ) : (
-                                    <Select
-                                      value={p.assigned_planning_person_id || ''}
-                                      onValueChange={(val) => handleAssignPlanningPerson(p.project_id, val === '__unassign__' ? '' : val)}
-                                    >
-                                      <SelectTrigger className={`h-8 w-44 text-xs ${p.assigned_planning_person_id ? 'border-indigo-200 bg-indigo-50' : 'border-dashed text-gray-500'}`} data-testid={`assign-pp-${p.project_id}`}>
-                                        <SelectValue placeholder="+ Assign">
-                                          {p.assigned_planning_person_name || '+ Assign'}
-                                        </SelectValue>
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {planningPersons.length === 0 ? (
-                                          <div className="px-3 py-2 text-xs text-gray-400">No Planning Persons yet — create via HR Portal</div>
-                                        ) : (
-                                          <>
-                                            {p.assigned_planning_person_id && (
-                                              <SelectItem value="__unassign__" data-testid={`unassign-pp-${p.project_id}`}>— Unassign —</SelectItem>
-                                            )}
-                                            {planningPersons.map(pp => (
-                                              <SelectItem key={pp.user_id} value={pp.user_id}>{pp.name || pp.email}</SelectItem>
-                                            ))}
-                                          </>
-                                        )}
-                                      </SelectContent>
-                                    </Select>
-                                  )}
-                                </td>
+                                <td className="px-4 py-2.5">{planningTeam(p, 'w-44')}</td>
                               )}
                               <td className="px-4 py-2.5">
-                                <div className="flex justify-center gap-1">
-                                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${p.project_id}`}>
-                                    <Eye className="h-3 w-3 mr-1" />View
-                                  </Button>
-                                  {projectSubTab === 'new' && (
-                                    <Button
-                                      size="sm"
-                                      className="h-7 text-xs bg-green-600 hover:bg-green-700"
-                                      onClick={() => handlePlanningStatusChange(p.project_id, 'active')}
-                                      data-testid={`ready-to-construction-${p.project_id}`}
-                                    >
-                                      <ArrowRight className="h-3 w-3 mr-1" />Ready to Construction
-                                    </Button>
-                                  )}
-                                  {projectSubTab === 'active' && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 text-xs text-indigo-700 hover:bg-indigo-50 border border-indigo-200"
-                                      onClick={() => {
-                                        if (window.confirm(`Move "${p.name}" back to New Projects?`)) {
-                                          handlePlanningStatusChange(p.project_id, 'new');
-                                        }
-                                      }}
-                                      data-testid={`move-to-new-${p.project_id}`}
-                                      title="Move this project back to New Projects"
-                                    >
-                                      ↩ Move to New
-                                    </Button>
-                                  )}
-                                  {projectSubTab === 'delivered' && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 text-xs text-amber-700 hover:bg-amber-50 border border-amber-200"
-                                      onClick={() => {
-                                        if (window.confirm(`Move "${p.name}" back to Current Projects?`)) {
-                                          handlePlanningStatusChange(p.project_id, 'active');
-                                        }
-                                      }}
-                                      data-testid={`move-to-current-${p.project_id}`}
-                                      title="Move this project back to Current Projects"
-                                    >
-                                      ↩ Move to Current
-                                    </Button>
-                                  )}
-                                  {projectSubTab !== 'archived' && user?.role === 'super_admin' && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 text-xs text-amber-700 hover:bg-amber-50"
-                                      onClick={() => openArchiveDialog(p.project_id, p.name)}
-                                      data-testid={`archive-${p.project_id}`}
-                                      title="Archive project (Super Admin only — requires email OTP)"
-                                    >
-                                      📦 Archive
-                                    </Button>
-                                  )}
-                                  {projectSubTab === 'archived' && (
-                                    <>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="h-7 text-xs text-emerald-700 hover:bg-emerald-50"
-                                        onClick={() => handleUnarchiveProject(p.project_id, p.name)}
-                                        data-testid={`unarchive-${p.project_id}`}
-                                      >
-                                        ↩ Restore
-                                      </Button>
-                                      {(user?.role === 'planning' || user?.role === 'super_admin') && (
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          className="h-7 text-xs text-red-600 hover:bg-red-50"
-                                          onClick={() => handleDeleteArchivedProject(p.project_id, p.name)}
-                                          data-testid={`delete-archived-${p.project_id}`}
-                                        >
-                                          🗑 Delete
-                                        </Button>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
+                                <div className="flex justify-center gap-1">{projectActions(p)}</div>
                               </td>
                             </tr>
-                          ));
-                        })()}
-                    </tbody>
-                  </table>
-                </div>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
             )}
