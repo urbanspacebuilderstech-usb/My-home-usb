@@ -1833,20 +1833,22 @@ function QuotesTab() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-        <div>
+      {/* Title and Save share the top row; the note runs full width below,
+          so on phones it isn't squeezed beside the button. */}
+      <CardHeader className="p-4 sm:p-6 space-y-1">
+        <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">Quote of the Day</CardTitle>
-          <p className="text-xs text-gray-500 mt-1">
-            Quote 1 shows on the 1st of every month, quote 2 on the 2nd, and so on — under everyone's greeting.
-            Quotes 29–31 show only in months that have those days.
-          </p>
+          {saveButton}
         </div>
-        {saveButton}
+        <p className="text-xs text-gray-500">
+          Quote 1 shows on the 1st of every month, quote 2 on the 2nd, and so on — under everyone's greeting.
+          Quotes 29–31 show only in months that have those days.
+        </p>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-2 p-4 pt-0 sm:p-6 sm:pt-0">
         {quotes.map((q, i) => (
           <div key={i} className="flex items-start gap-2 sm:gap-3" data-testid={`quote-row-${i + 1}`}>
-            <div className="w-10 shrink-0 pt-2 text-right leading-tight">
+            <div className="w-8 sm:w-10 shrink-0 pt-2 text-right leading-tight">
               <span className={`text-sm font-semibold ${i + 1 === today ? 'text-amber-600' : 'text-gray-500'}`}>{i + 1}</span>
               {i + 1 === today && <span className="block text-[10px] font-medium text-amber-600">Today</span>}
             </div>
@@ -2076,7 +2078,7 @@ function SettingsTab({ settings, setSettings, onSave, user }) {
                 <p className="text-xs text-gray-500">Paste this key in the <code className="bg-gray-100 px-1 rounded">essl_sync.py</code> script's <code className="bg-gray-100 px-1 rounded">SYNC_KEY</code> field.</p>
               </div>
             ) : (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Button onClick={handleGenerateSyncKey} disabled={syncKeyLoading} className="bg-blue-600 hover:bg-blue-700" data-testid="generate-sync-key-btn">
                   {syncKeyLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Key className="h-4 w-4 mr-2" />}
                   Generate Sync Key
@@ -2103,9 +2105,11 @@ function SettingsTab({ settings, setSettings, onSave, user }) {
       )}
 
       <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Clock className="h-5 w-5" />Department Timings</CardTitle></CardHeader>
-        <CardContent><div className="space-y-3">{Object.entries(settings.department_timings || {}).map(([dept, timing]) => (
-          <div key={dept} className="grid grid-cols-4 gap-3 items-center">
-            <Label className="font-medium">{dept}</Label>
+        {/* Phones: department name on its own line, the three boxes below
+            it; four columns left the time boxes too narrow for "09:00". */}
+        <CardContent><div className="space-y-4 sm:space-y-3">{Object.entries(settings.department_timings || {}).map(([dept, timing]) => (
+          <div key={dept} className="grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3 items-center" data-testid={`dept-timing-${dept}`}>
+            <Label className="font-medium col-span-3 sm:col-span-1">{dept}</Label>
             <div><Label className="text-xs text-gray-500">Start</Label><Input type="time" value={timing.start || ''} onChange={e => updateTiming(dept, 'start', e.target.value)} /></div>
             <div><Label className="text-xs text-gray-500">End</Label><Input type="time" value={timing.end || ''} onChange={e => updateTiming(dept, 'end', e.target.value)} /></div>
             <div><Label className="text-xs text-gray-500">Grace (min)</Label><Input type="number" value={timing.grace_minutes || 0} onChange={e => updateTiming(dept, 'grace_minutes', e.target.value)} /></div>
@@ -2113,9 +2117,9 @@ function SettingsTab({ settings, setSettings, onSave, user }) {
         ))}</div></CardContent>
       </Card>
       <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><FileText className="h-5 w-5" />Annual Leave Limits</CardTitle></CardHeader>
-        <CardContent><div className="space-y-3">{Object.entries(settings.leave_limits || {}).map(([type, info]) => (
-          <div key={type} className="grid grid-cols-3 gap-3 items-center">
-            <div><Label className="font-medium">{info.name || type}</Label><p className="text-xs text-gray-500">Code: {type}</p></div>
+        <CardContent><div className="space-y-4 sm:space-y-3">{Object.entries(settings.leave_limits || {}).map(([type, info]) => (
+          <div key={type} className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 items-center">
+            <div className="col-span-2 sm:col-span-1"><Label className="font-medium">{info.name || type}</Label><p className="text-xs text-gray-500">Code: {type}</p></div>
             <div><Label className="text-xs text-gray-500">Annual Limit</Label><Input type="number" value={info.annual_limit || 0} onChange={e => updateLeave(type, 'annual_limit', e.target.value)} data-testid={`leave-limit-${type}`} /></div>
             <div className="flex items-center gap-2 pt-4"><input type="checkbox" checked={info.carry_forward || false} onChange={e => updateLeave(type, 'carry_forward', e.target.checked)} /><Label className="text-xs">Carry Forward</Label></div>
           </div>
