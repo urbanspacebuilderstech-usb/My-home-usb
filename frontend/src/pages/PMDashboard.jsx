@@ -574,7 +574,7 @@ export default function PMDashboard() {
           <TabsContent value="requests">
             <div className="space-y-3" data-testid="pm-requests-tab">
               <Tabs defaultValue="material_requests" className="w-full">
-                <TabsList className="bg-amber-50/40 border border-amber-100 rounded-lg p-1 flex flex-wrap">
+                <TabsList className="bg-amber-50/40 border border-amber-100 rounded-lg p-1 flex flex-wrap h-auto">
                   <TabsTrigger value="material_requests" className="text-xs sm:text-sm data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-sm" data-testid="pm-req-sub-material">
                     Material Requests<CountBadge count={materialRequests?.length || 0} />
                   </TabsTrigger>
