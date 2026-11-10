@@ -13095,10 +13095,45 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
 
 
 @router.get("/labour-contractor-payments/summary")
-async def labour_contractor_payment_summary(user: User = Depends(get_current_user)):
-    """Cross-project payment summary per contractor — accountant/planning/super-admin only."""
+async def labour_contractor_payment_summary(
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Cross-project payment summary per contractor — accountant/planning/super-admin only.
+
+    Nov 10 2026 — also the contractor table on Suspense A/c > Labour, which
+    now lists every contractor the way Materials lists every vendor (it used
+    to list only contractors holding a suspense balance).
+
+    date_from/date_to (YYYY-MM-DD, inclusive) work like
+    /material-vendor-payments/summary: each figure counts only its own rows
+    dated inside the window (work order created_at, payment request
+    requested_at, payment payment_date, suspense ledger date), Suspense
+    becomes the net movement in the window, and a contractor with nothing in
+    range drops out.
+
+    Suspense is summed here in one pass with the same rule as
+    _get_contractor_suspense_balance and /suspense/overview (it used to be two
+    queries per contractor). A contractor whose only activity is a suspense
+    balance, with no live work order, still gets a row, so the Suspense
+    column adds up to the Labour Suspense card.
+    """
     if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
+
+    ranged = bool(date_from or date_to)
+
+    def _in_range(date_val) -> bool:
+        if not ranged:
+            return True
+        d = str(date_val or "")[:10]
+        if not d:
+            return False
+        if date_from and d < date_from:
+            return False
+        if date_to and d > date_to:
+            return False
+        return True
 
     work_orders = await db.project_work_orders.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(2000)
     proj_ids = list({wo.get("project_id") for wo in work_orders})
@@ -13155,47 +13190,123 @@ async def labour_contractor_payment_summary(user: User = Depends(get_current_use
             "pending_amount": 0.0,
         })
         proj_name = (projects.get(wo.get("project_id")) or {}).get("name") or wo.get("project_name", "")
-        if proj_name and proj_name not in bucket["projects"]:
-            bucket["projects"].append(proj_name)
-        bucket["total_value"] += float(wo.get("total_value", 0))
+        wo_in_range = _in_range(wo.get("created_at") or wo.get("issued_at"))
+        if wo_in_range:
+            bucket["total_value"] += float(wo.get("total_value", 0))
+        pending_in_range = False
         for stage in wo.get("stages", []):
             for pr in stage.get("payment_requests", []) or []:
                 if pr.get("status") in ["requested", "pm_approved", "qc_approved", "planning_approved"]:
+                    if not _in_range(pr.get("requested_at") or pr.get("created_at")):
+                        continue
                     bucket["pending_amount"] += float(pr.get("amount", 0))
+                    pending_in_range = True
+        if (wo_in_range or pending_in_range) and proj_name and proj_name not in bucket["projects"]:
+            bucket["projects"].append(proj_name)
 
     # Feb 28 2026 — Compute paid_amount from recorded_expenses (source of truth
     # in the Cashbook) rather than the cached wo.paid_amount which can drift
     # after reversals / cheque bounces / manual adjustments. Every approved
     # labour recorded_expense whose project is still live counts.
     _EXCLUDED_STATUSES = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
-    labour_expenses = await db.recorded_expenses.find(
-        {"category": "labour"},
-        {"_id": 0, "contractor_id": 1, "contractor_name": 1, "vendor_name": 1, "amount": 1, "project_id": 1, "status": 1},
-    ).to_list(10000)
+    labour_expenses, suspense_rows = await asyncio.gather(
+        db.recorded_expenses.find(
+            {"category": "labour"},
+            {"_id": 0, "contractor_id": 1, "contractor_name": 1, "vendor_name": 1, "amount": 1, "project_id": 1,
+             "status": 1, "is_deleted": 1, "request_id": 1, "linked_request_ids": 1, "payment_date": 1, "created_at": 1},
+        ).to_list(20000),
+        db.contractor_suspense_ledger.find(
+            {},
+            {"_id": 0, "contractor_id": 1, "contractor_name": 1, "amount": 1, "type": 1, "movement": 1,
+             "source_type": 1, "reference_id": 1, "date": 1, "created_at": 1},
+        ).to_list(20000),
+    )
     for rx in labour_expenses:
         if (rx.get("status") or "").lower() in _EXCLUDED_STATUSES:
             continue
         pid = rx.get("project_id")
         if pid and pid not in live_pids:
             continue  # drop payments to deleted projects
+        if not _in_range(rx.get("payment_date") or rx.get("created_at")):
+            continue
         cid = rx.get("contractor_id") or rx.get("contractor_name") or rx.get("vendor_name")
-        if not cid or cid not in by_contractor:
+        target = by_contractor.get(cid) if cid else None
+        if target is None:
             # Match by name when contractor_id not stored on the expense.
             name_lc = (rx.get("contractor_name") or rx.get("vendor_name") or "").strip().lower()
             if name_lc:
-                for bucket in by_contractor.values():
-                    if (bucket.get("contractor_name") or "").strip().lower() == name_lc:
-                        bucket["paid_amount"] += float(rx.get("amount") or 0)
-                        break
+                target = next((b for b in by_contractor.values()
+                               if (b.get("contractor_name") or "").strip().lower() == name_lc), None)
+        if target is None:
             continue
-        by_contractor[cid]["paid_amount"] += float(rx.get("amount") or 0)
+        target["paid_amount"] += float(rx.get("amount") or 0)
+        # With a date range a contractor can have a payment and nothing else
+        # in it, so its project must come from the payment too.
+        proj_name = (projects.get(pid) or {}).get("name") if pid else ""
+        if proj_name and proj_name not in target["projects"]:
+            target["projects"].append(proj_name)
+
+    # Suspense — same rule as _get_contractor_suspense_balance: only ledger
+    # rows whose reference_id (payment request) still has a live labour
+    # expense count, and the compensation rows are skipped.
+    live_prs_by_contractor: Dict[str, set] = {}
+    for rx in labour_expenses:
+        if (rx.get("status") or "").lower() in _EXCLUDED_STATUSES or rx.get("is_deleted"):
+            continue
+        cid = rx.get("contractor_id")
+        if not cid:
+            continue
+        prs = live_prs_by_contractor.setdefault(cid, set())
+        if rx.get("request_id"):
+            prs.add(rx["request_id"])
+        for pr_id in (rx.get("linked_request_ids") or []):
+            prs.add(pr_id)
+    suspense_by_cid: Dict[str, float] = {}
+    suspense_name_by_cid: Dict[str, str] = {}
+    for row in suspense_rows:
+        cid = row.get("contractor_id")
+        if not cid:
+            continue
+        st = (row.get("source_type") or "").lower()
+        if st.startswith("expense_delete_reversal") or st.startswith("susp_heal"):
+            continue
+        ref = row.get("reference_id")
+        if not ref or ref not in live_prs_by_contractor.get(cid, ()):
+            continue
+        if not _in_range(row.get("date") or row.get("created_at")):
+            continue
+        amt = float(row.get("amount") or 0)
+        mv = (row.get("type") or row.get("movement") or "").lower()
+        suspense_by_cid[cid] = suspense_by_cid.get(cid, 0.0) + (amt if mv == "credit" else -amt)
+        if row.get("contractor_name") and cid not in suspense_name_by_cid:
+            suspense_name_by_cid[cid] = row["contractor_name"]
+
+    for cid, bal in suspense_by_cid.items():
+        if cid in by_contractor or abs(bal) <= 0.5 or cid in inactive_ids:
+            continue
+        by_contractor[cid] = {
+            "contractor_id": cid,
+            "contractor_name": suspense_name_by_cid.get(cid) or cid,
+            "contractor_type": "",
+            "projects": [],
+            "total_value": 0.0,
+            "paid_amount": 0.0,
+            "pending_amount": 0.0,
+        }
 
     rows = []
     for cid, bucket in by_contractor.items():
+        bucket["suspense_balance"] = round(suspense_by_cid.get(bucket.get("contractor_id"), 0.0), 2) if bucket.get("contractor_id") else 0.0
+        if ranged and not (bucket["total_value"] or bucket["paid_amount"] or bucket["pending_amount"]
+                           or abs(bucket["suspense_balance"]) > 0.5):
+            continue
         bucket["balance"] = bucket["total_value"] - bucket["paid_amount"]
-        bucket["suspense_balance"] = await _get_contractor_suspense_balance(bucket.get("contractor_id"))
+        # Same flag as the material vendor summary: debits exceeding credits
+        # means credit records are missing, not that the contractor owes.
+        bucket["suspense_integrity_error"] = bucket["suspense_balance"] < -0.5
+        bucket["suspense_overdrawn_by"] = round(abs(bucket["suspense_balance"]), 2) if bucket["suspense_integrity_error"] else 0.0
         rows.append(bucket)
-    rows.sort(key=lambda r: r.get("contractor_name", "").lower())
+    rows.sort(key=lambda r: (r.get("contractor_name") or "").lower())
     return {"count": len(rows), "rows": rows}
 
 

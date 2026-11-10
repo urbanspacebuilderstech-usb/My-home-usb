@@ -1,6 +1,6 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, ChevronDown, ChevronRight, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp, HelpCircle, Clock, Search, X } from 'lucide-react';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, ArrowLeft, AlertTriangle, Trash2, Eye, ArrowDownCircle, ArrowUpCircle, FileText, Landmark, PiggyBank, TrendingUp, HelpCircle, Clock, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +33,16 @@ const MV_TYPE_BG = {
   credit: 'bg-amber-50 text-amber-700 border-amber-200',
   suspense: 'bg-purple-50 text-purple-700 border-purple-200',
 };
+// Nov 10 2026 — Labour > Contractor ledger dialog, same mapping as
+// LabourContractorPaymentSummary's timeline (Labour Payments page).
+const LC_TYPE_ICON = { wo: FileText, payment: ArrowUpCircle, request: ArrowDownCircle, suspense: Clock };
+const LC_TYPE_BG = {
+  wo: 'bg-violet-50 text-violet-700 border-violet-200',
+  payment: 'bg-green-50 text-green-700 border-green-200',
+  request: 'bg-blue-50 text-blue-700 border-blue-200',
+  suspense: 'bg-amber-50 text-amber-700 border-amber-200',
+};
+const LC_TYPE_LABEL = { wo: 'Work Order', payment: 'Payment', request: 'Pending', suspense: 'Suspense' };
 
 // ============ Payment-mode breakdown (Aug 27 2026) ============
 // Mirrors the Cashbook's "Payment Modes" tile row (Accounts > Cashbook —
@@ -342,7 +352,6 @@ export default function SuspenseAccountPage() {
   // Used to clean up legacy/stale rows that "Process Payment" can't resolve
   // (e.g. duplicate ledger writes). Aggregated balances recompute on next load.
   const canDelete = user?.role === 'super_admin';
-  const [expandedSuspense, setExpandedSuspense] = useState({}); // key → bool
   // Aug 27 2026 — which mode tile (if any) is drilled into on the Materials /
   // Labour tabs. { key: 'cash'|'current_account'|..., label: 'Cash' } | null
   const [matModeDrill, setMatModeDrill] = useState(null);
@@ -354,7 +363,6 @@ export default function SuspenseAccountPage() {
   const [pettySearch, setPettySearch] = useState('');
   const [pettySe, setPettySe] = useState('all');
   const [pettyProject, setPettyProject] = useState('all');
-  const toggleExpanded = (key) => setExpandedSuspense(s => ({ ...s, [key]: !s[key] }));
 
   // Jul 03 2026 — Rich delete confirmation dialog that fetches the cascade
   // impact (linked recorded_expenses count + total) before letting the user
@@ -447,13 +455,59 @@ export default function SuspenseAccountPage() {
     } finally { setVendorRowsLoading(false); }
   };
   useEffect(() => { loadVendorRows(); }, [vendorDateFrom, vendorDateTo]);
+
+  // Nov 10 2026 — Labour > Contractor table, same layout as the Materials
+  // vendor table. It listed only contractors holding a suspense balance
+  // (just Yuvaraj); it now lists every contractor from the Labour Payments
+  // contractor summary, with the same search and date range.
+  const [contractorRows, setContractorRows] = useState([]);
+  const [contractorRowsLoading, setContractorRowsLoading] = useState(true);
+  const [contractorSearch, setContractorSearch] = useState('');
+  const [contractorDateFrom, setContractorDateFrom] = useState('');
+  const [contractorDateTo, setContractorDateTo] = useState('');
+  const loadContractorRows = async (showLoader = true) => {
+    if (showLoader) setContractorRowsLoading(true);
+    try {
+      const params = {};
+      if (contractorDateFrom) params.date_from = contractorDateFrom;
+      if (contractorDateTo) params.date_to = contractorDateTo;
+      const res = await axios.get(`${API}/labour-contractor-payments/summary`, { params });
+      const rows = res.data?.rows || [];
+      setContractorRows(rows);
+      return rows;
+    } catch {
+      if (showLoader) setContractorRows([]);
+      return null;
+    } finally { setContractorRowsLoading(false); }
+  };
+  useEffect(() => { loadContractorRows(); }, [contractorDateFrom, contractorDateTo]);
+  const contractorKey = (r) => r.contractor_id || r.contractor_name;
+  const filteredContractorRows = contractorRows.filter(r => !contractorSearch.trim() || (r.contractor_name || '').toLowerCase().includes(contractorSearch.trim().toLowerCase()));
+
   // Oct 27 2026 — this page loaded once and never again. OM MURUGA EARTH's
   // row kept Suspense ₹1,94,010 after nine bills were paid from it
   // (₹1,42,975, 3:36-3:38 pm), while the timeline, fetched on click, showed
   // the #716355 chip at the live ₹51,035. Refresh like the other Accounts
   // pages, but at a minute: the vendor summary reads every material row.
-  useAutoRefresh((showLoader) => Promise.all([fetchData(showLoader), loadVendorRows(showLoader)]), 60000);
+  useAutoRefresh((showLoader) => Promise.all([fetchData(showLoader), loadVendorRows(showLoader), loadContractorRows(showLoader)]), 60000);
   const filteredVendorRows = vendorRows.filter(r => !vendorSearch.trim() || (r.vendor_name || '').toLowerCase().includes(vendorSearch.trim().toLowerCase()));
+
+  const [contractorLedgerDlg, setContractorLedgerDlg] = useState({ open: false, contractor: null, data: [], loading: false });
+  const openContractorLedger = async (row) => {
+    setContractorLedgerDlg({ open: true, contractor: row, data: [], loading: true });
+    try {
+      const key = contractorKey(row);
+      const [res, rows] = await Promise.all([
+        axios.get(`${API}/labour-contractor-payments/${encodeURIComponent(key)}/ledger`),
+        loadContractorRows(false),
+      ]);
+      const fresh = (rows || []).find(r => contractorKey(r) === key) || row;
+      setContractorLedgerDlg((s) => ({ ...s, contractor: fresh, data: res.data?.ledger || [], loading: false }));
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to load ledger');
+      setContractorLedgerDlg({ open: false, contractor: null, data: [], loading: false });
+    }
+  };
 
   const [vendorLedgerDlg, setVendorLedgerDlg] = useState({ open: false, vendor: null, data: [], suspenseByCheque: [], loading: false });
   const openVendorLedger = async (row) => {
@@ -880,78 +934,109 @@ export default function SuspenseAccountPage() {
                 canDelete={canDelete}
                 onDelete={deleteLabourEntry}
               />
-            ) : (labSus.balances || []).length === 0 ? (
-              <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No labour suspense balances</CardContent></Card>
             ) : (
               <>
               <SuspenseBalanceModeTiles balances={labSus.balances} colorClass="text-purple-700" testPrefix="labour" hideUnattributed onSelect={(key, label) => setLabModeDrill({ key, label })} />
+              {/* Nov 10 2026 — Contractor table in the same S.No/Contractor/
+                  Projects/Total/Paid/Pending/Suspense/Ledger layout as the
+                  Materials vendor table, listing every contractor, not only
+                  those holding a suspense balance. Shown even when no
+                  contractor has a balance, so the list never disappears. */}
               <Card><CardContent className="p-0">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Contractor</th>
-                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Suspense Balance</th>
-                      <th className="px-4 py-2.5 w-16"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {(labSus.balances || []).map((b) => {
-                      const k = `lab-${b.name}`;
-                      const open = !!expandedSuspense[k];
-                      const entries = b.entries || [];
-                      return (
-                        <Fragment key={k}>
-                          <tr className="cursor-pointer hover:bg-gray-50" onClick={() => toggleExpanded(k)} data-testid={`lab-balance-${b.name}`}>
-                            <td className="px-4 py-3 text-sm font-medium">
-                              <div className="flex items-center gap-2">
-                                {open ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
-                                <span>{b.name}</span>
-                                <span className="text-[10px] text-gray-400">({entries.length} {entries.length === 1 ? 'entry' : 'entries'})</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-bold text-purple-600">{fmt(b.balance)}</td>
-                            <td className="px-4 py-3 text-right"></td>
-                          </tr>
-                          {open && entries.length > 0 && (
-                            <tr key={`${k}-detail`} className="bg-purple-50/30">
-                              <td colSpan={3} className="px-4 py-2">
-                                <div className="space-y-1">
-                                  {entries.map((e, i) => {
-                                    const modeLabel = e.mode ? e.mode.replace(/_/g, ' ').toUpperCase() : null;
-                                    const dateStr = e.date ? new Date(e.date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
-                                    return (
-                                    <div key={e.ledger_id || i} className="flex items-center justify-between gap-2 bg-white rounded px-3 py-2 border border-purple-100" data-testid={`lab-entry-${e.labour_expense_id || i}`}>
-                                      <div className="text-xs min-w-0 flex-1">
-                                        <div className="font-medium text-gray-800 truncate">{e.label || 'Labour suspense'}</div>
-                                        {e.description && <div className="text-[10px] text-gray-500 truncate">{e.description}</div>}
-                                        <div className="text-[10px] text-gray-400 mt-0.5 flex flex-wrap gap-x-1.5">
-                                          {e.project_name && <span>Project: <span className="text-gray-600">{e.project_name}</span></span>}
-                                          {modeLabel && <span>· Mode: <span className="text-gray-600">{modeLabel}</span></span>}
-                                          {e.status && <span>· <span className="text-gray-600 capitalize">{e.status.replace(/_/g, ' ')}</span></span>}
-                                          {e.cheque_no && <span>· Ref: <span className="text-gray-600">{e.cheque_no}</span></span>}
-                                          {dateStr && <span>· {dateStr}</span>}
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-3 shrink-0">
-                                        <span className="text-sm font-bold text-purple-700">{fmt(e.balance)}</span>
-                                        {canDelete && (
-                                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:bg-red-50" onClick={(ev) => { ev.stopPropagation(); deleteLabourEntry(e); }} data-testid={`delete-lab-${e.labour_expense_id || i}`}>
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </div>
-                                    );
-                                  })}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 border-b bg-gray-50/60">
+                  <div className="relative flex-1 min-w-[180px]">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                    <Input
+                      value={contractorSearch}
+                      onChange={(e) => setContractorSearch(e.target.value)}
+                      placeholder="Search contractor..."
+                      className="h-8 pl-8 text-xs bg-white"
+                      data-testid="lab-contractor-search"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      type="date"
+                      value={contractorDateFrom}
+                      onChange={(e) => setContractorDateFrom(e.target.value)}
+                      className="h-8 text-xs bg-white w-[140px]"
+                      data-testid="lab-contractor-date-from"
+                    />
+                    <span className="text-xs text-gray-400">to</span>
+                    <Input
+                      type="date"
+                      value={contractorDateTo}
+                      onChange={(e) => setContractorDateTo(e.target.value)}
+                      className="h-8 text-xs bg-white w-[140px]"
+                      data-testid="lab-contractor-date-to"
+                    />
+                    {(contractorDateFrom || contractorDateTo) && (
+                      <Button
+                        size="sm" variant="ghost" className="h-8 w-8 p-0 text-gray-400 hover:text-gray-700"
+                        onClick={() => { setContractorDateFrom(''); setContractorDateTo(''); }}
+                        title="Clear date range"
+                        data-testid="lab-contractor-date-clear"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {contractorRowsLoading ? (
+                  <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
+                ) : filteredContractorRows.length === 0 ? (
+                  <p className="text-center text-xs text-gray-400 py-10">{contractorSearch ? `No contractor matches "${contractorSearch}"` : (contractorDateFrom || contractorDateTo) ? 'No contractor activity in this date range' : 'No labour contractors yet'}</p>
+                ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" data-testid="lab-contractor-summary-table">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-center px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px] w-12">S.No</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px]">Contractor</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px]">Projects</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px]">Total</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-green-700 uppercase text-[11px]">Paid</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-blue-700 uppercase text-[11px]">Pending</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-amber-700 uppercase text-[11px]">Suspense</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-500 uppercase text-[11px] w-20">Ledger</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredContractorRows.map((r, i) => (
+                        <tr key={contractorKey(r) || i} className="hover:bg-purple-50/40" data-testid={`lab-contractor-row-${i}`}>
+                          <td className="px-3 py-2.5 text-center text-gray-500">{i + 1}</td>
+                          <td className="px-3 py-2.5 font-medium text-gray-900">{r.contractor_name}</td>
+                          <td className="px-3 py-2.5 text-gray-700 max-w-[260px]" title={(r.projects || []).join(', ')}>
+                            {(r.projects || []).slice(0, 3).join(', ')}{(r.projects || []).length > 3 ? ` +${r.projects.length - 3} more` : ''}{!r.projects?.length && '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right">{fmt(r.total_value)}</td>
+                          <td className="px-3 py-2.5 text-right text-green-700 font-semibold">{fmt(r.paid_amount)}</td>
+                          <td className="px-3 py-2.5 text-right text-blue-700">{fmt(r.pending_amount)}</td>
+                          <td className="px-3 py-2.5 text-right font-bold" data-testid={`lab-contractor-suspense-${i}`}>
+                            <span className={Number(r.suspense_balance || 0) < -0.5 ? 'text-rose-700' : Number(r.suspense_balance || 0) > 0.5 ? 'text-amber-700' : 'text-gray-400'}>
+                              {fmt(r.suspense_balance)}
+                            </span>
+                            {Number(r.suspense_balance || 0) < -0.5 && (
+                              <p
+                                className="text-[9px] text-rose-700 font-semibold mt-0.5 underline decoration-dotted cursor-help"
+                                title={`Data integrity issue — this contractor's suspense is overdrawn by ${fmt(r.suspense_overdrawn_by || Math.abs(Number(r.suspense_balance || 0)))}. Debits exceed credits, which normally means a duplicated payment or a deleted credit. This is NOT money the contractor owes. Open the ledger to investigate.`}
+                              >
+                                ⚠ overdrawn — check ledger
+                              </p>
+                            )}
+                            {Number(r.suspense_balance || 0) > 0.5 && <p className="text-[9px] text-amber-600 font-normal mt-0.5">credit avl.</p>}
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-purple-300 text-purple-700 hover:bg-purple-50" onClick={() => openContractorLedger(r)} data-testid={`lab-contractor-ledger-btn-${i}`}>
+                              <Eye className="h-3 w-3" /> View
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                )}
               </CardContent></Card>
               </>
             )}
@@ -1090,6 +1175,64 @@ export default function SuspenseAccountPage() {
                       {l.payment_mode && <span>· Mode: <span className="text-gray-700 uppercase">{(l.payment_mode || '').replace(/_/g, ' ')}</span></span>}
                       {l.reference && <span>· Ref: <span className="text-gray-700">{l.reference}</span></span>}
                       {l.due_date && <span>· Due: <span className="text-gray-700">{(l.due_date || '').slice(0, 10)}</span></span>}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Labour > Contractor "Ledger" view — same endpoint/shape as the
+          Labour Payments contractor summary's timeline dialog. */}
+      <Dialog open={contractorLedgerDlg.open} onOpenChange={(v) => !v && setContractorLedgerDlg({ open: false, contractor: null, data: [], loading: false })}>
+        <DialogContent className="max-w-[95vw] sm:max-w-3xl max-h-[85vh] overflow-y-auto" data-testid="lab-contractor-ledger-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Users className="h-4 w-4 text-purple-600" /> {contractorLedgerDlg.contractor?.contractor_name} · Activity Timeline
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Total <span className="font-semibold">{fmt(contractorLedgerDlg.contractor?.total_value)}</span>
+              {' · '}Paid <span className="font-semibold text-green-700">{fmt(contractorLedgerDlg.contractor?.paid_amount)}</span>
+              {' · '}Pending <span className="font-semibold text-blue-700">{fmt(contractorLedgerDlg.contractor?.pending_amount)}</span>
+              {' · '}Suspense <span className="font-semibold text-amber-700">{fmt(contractorLedgerDlg.contractor?.suspense_balance)}</span>
+            </DialogDescription>
+          </DialogHeader>
+          {contractorLedgerDlg.loading ? (
+            <p className="text-center text-xs text-gray-400 py-6">Loading timeline…</p>
+          ) : contractorLedgerDlg.data.length === 0 ? (
+            <p className="text-center text-xs text-gray-400 py-6">No activity yet</p>
+          ) : (
+            <ol className="relative border-l-2 border-purple-100 ml-3 space-y-3 py-2">
+              {contractorLedgerDlg.data.map((l, i) => {
+                const Icon = LC_TYPE_ICON[l.type] || Clock;
+                const amtPrefix = l.type === 'payment' ? '+' : l.type === 'suspense' ? (Number(l.amount) >= 0 ? '+' : '−') : '';
+                const amtVal = l.type === 'suspense' ? Math.abs(Number(l.amount) || 0) : l.amount;
+                return (
+                  <li key={i} className="ml-4" data-testid={`lab-contractor-ledger-entry-${i}`}>
+                    <span className={`absolute -left-3 flex items-center justify-center w-6 h-6 rounded-full border ${LC_TYPE_BG[l.type] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <Badge variant="outline" className={`text-[9px] ${LC_TYPE_BG[l.type] || ''}`}>{LC_TYPE_LABEL[l.type] || l.type}</Badge>
+                      <span className={`text-sm font-semibold ${l.type === 'payment' ? 'text-green-700' : l.type === 'request' ? 'text-blue-700' : l.type === 'suspense' ? 'text-amber-700' : 'text-violet-800'}`}>
+                        {amtPrefix}{fmt(amtVal)}
+                      </span>
+                      <span className="text-[10px] text-gray-400">{fmtDateTime(l.date)}</span>
+                      {l.type === 'request' && l.pending_with ? (
+                        <Badge variant="outline" className="text-[9px] bg-orange-50 text-orange-700 border-orange-300 font-semibold">
+                          With {l.pending_with}
+                        </Badge>
+                      ) : l.status && (
+                        <Badge variant="outline" className="text-[9px] bg-gray-50 text-gray-700 border-gray-200 capitalize">{(l.status || '').replace(/_/g, ' ')}</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-700 mt-0.5">{l.notes}</p>
+                    <div className="text-[10px] text-gray-500 mt-0.5 flex flex-wrap gap-2">
+                      {l.project && <span>Project: <span className="text-gray-700">{l.project}</span></span>}
+                      {l.payment_mode && <span>· Mode: <span className="text-gray-700 uppercase">{(l.payment_mode || '').replace(/_/g, ' ')}</span></span>}
+                      {l.reference && <span>· Ref: <span className="text-gray-700">{l.reference}</span></span>}
                     </div>
                   </li>
                 );
