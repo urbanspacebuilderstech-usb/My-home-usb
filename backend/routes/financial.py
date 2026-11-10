@@ -19331,3 +19331,400 @@ async def stranded_reject_bills_apply(expense_ids: Optional[str] = None, user: U
             await create_audit_log(user.user_id, "stranded_reject_bill_repair", "material_expense", r["expense_id"], {
                 "class": r["class"], "reason": r["reason"], "fix": r["fix"], "before": r["stored"]})
     return fast_json({"write_performed": any(x["written"] for x in results), "results": results})
+
+
+# ==========================================================================
+# Nov 10 2026 - cheque #162788 / KAG - Packiyaraj: a deleted labour payment.
+#
+# 6 Nov, 2:41 pm IST: Ramya C paid KAG - Packiyaraj RAB-06 (Mr Prakash; a
+# 2-stage bill, 8,700 + 1,300 = 10,000) with the whole of cheque #162788
+# (Mr Gopinath, 2,00,000). The labour release of the time marked the cheque
+# used_for_expense_id and credited the 1,90,000 excess to KAG
+# (contractor_suspense_ledger sl_52f25899, reference_id pr_65a69d35).
+# 2:45 pm: she deleted that payment (exp_11654f842dc6). The delete put RAB-06
+# back in Pending Release but:
+#   - left the cheque marked used: it reads 0 available with no payment
+#     behind it, so 2,00,000 is locked;
+#   - left the 1,90,000 credit. Every Labour suspense total counts a row only
+#     while its RAB has a live payment, so it is hidden now and comes back as
+#     KAG credit that was never paid the moment RAB-06 is paid again.
+#
+# Repair, in this order so a stop half-way never doubles money:
+#   1. void the credit with a matching debit of type cheque_bounce_reversal -
+#      the one reversal type every guard knows; a later genuine bounce of
+#      #162788 checks reversed_ledger_id and skips a credit already voided.
+#      It carries cheque_no, so it lands in the same Cheque tile as the
+#      credit, and is dated at the deletion, so a date window holding the
+#      credit holds its void too. created_at records when it was written.
+#   2. clear the cheque's used mark, keeping the old values on the cheque.
+# RAB-06 is not touched. The preview reads only; _r162788_apply has no route
+# until the user approves the apply step.
+# ==========================================================================
+
+_R162788 = {
+    "cheque_id": "chq_5a96f838",
+    "cheque_number": "162788",
+    "deleted_expense_id": "exp_11654f842dc6",
+    "deleted_at": "2026-11-06T09:15:45.171205+00:00",  # audit aud_ad6b7bb4c9adb5e5
+    "credit_ledger_id": "sl_52f25899",
+    "credit_amount": 190000.0,
+    "contractor_id": "lc_63d164ec",
+    "work_order_id": "wo_8faa9ce0",
+    "rab_request_ids": ["pr_65a69d35", "pr_4b1f2392"],
+    "primary_request_id": "pr_65a69d35",
+    "repair_tag": "fix_162788_kag_20261110",
+}
+_R162788_USED_FIELDS = ("used_for_expense_id", "used_for_request_id", "used_for_rab_number",
+                        "used_for_contractor_name", "used_at", "used_by", "used_by_name")
+_R162788_LIVE_EXCLUDED = {"rejected", "accountant_rejected", "accounts_rejected",
+                          "under_correction", "cheque_bounced"}
+
+
+def _r162788_totals(rows: List[Dict[str, Any]], live_prs: set) -> Dict[str, Any]:
+    """KAG's balance and Suspense A/c > Labour tile split over `rows`, when the
+    RABs in `live_prs` have a live payment. Same row filter and sign as
+    _get_contractor_suspense_balance, /suspense/overview and
+    /labour-contractor-payments/summary; same tile rule as /suspense/overview
+    (the row's own mode, else Cheque when it names a cheque)."""
+    balance = 0.0
+    tiles: Dict[str, float] = {}
+    for r in rows:
+        st = (r.get("source_type") or "").lower()
+        if st.startswith("expense_delete_reversal") or st.startswith("susp_heal"):
+            continue
+        if not r.get("reference_id") or r["reference_id"] not in live_prs:
+            continue
+        amt = float(r.get("amount") or 0)
+        signed = amt if (r.get("type") or r.get("movement") or "").lower() == "credit" else -amt
+        balance += signed
+        bucket = classify_suspense_bucket(r.get("payment_mode") or ("cheque" if r.get("cheque_no") else None))
+        tiles[bucket] = round(tiles.get(bucket, 0.0) + signed, 2)
+    return {"balance": round(balance, 2), "tiles": tiles}
+
+
+def _r162788_bounce_targets(cheque: Dict[str, Any], rows: List[Dict[str, Any]]) -> List[str]:
+    """Credits a genuine bounce of this cheque would void: the selection and
+    already-reversed check of _reverse_cheque_pooled_suspense_credit."""
+    ref = cheque.get("used_for_request_id")
+    already = {r.get("reversed_ledger_id") for r in rows
+               if r.get("source_type") == "cheque_bounce_reversal" and r.get("reversed_ledger_id")}
+    return [r.get("ledger_id") for r in rows
+            if r.get("cheque_no") == cheque.get("cheque_number") and r.get("type") == "credit"
+            and r.get("source_type") == "cheque_excess"
+            and (not ref or r.get("reference_id") == ref)
+            and r.get("ledger_id") not in already]
+
+
+def _r162788_reversal_row(credit: Dict[str, Any], user: User, now: str) -> Dict[str, Any]:
+    return {
+        "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
+        "contractor_id": credit.get("contractor_id"),
+        "contractor_name": credit.get("contractor_name"),
+        "project_id": credit.get("project_id"),
+        "amount": float(credit.get("amount") or 0),
+        "type": "debit",
+        "source_type": "cheque_bounce_reversal",
+        "reference_id": credit.get("reference_id"),
+        "reversed_ledger_id": credit.get("ledger_id"),
+        "cheque_no": credit.get("cheque_no"),
+        "date": _R162788["deleted_at"],
+        "created_at": now,
+        "notes": ("Reversal: payment %s (RAB-06, cheque %s) was deleted on 6 Nov 2026 — voids "
+                  "suspense credit %s. Not a bounce." % (
+                      _R162788["deleted_expense_id"], credit.get("cheque_no"), credit.get("ledger_id"))),
+        "repair_tag": _R162788["repair_tag"],
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+    }
+
+
+async def _r162788_context() -> Dict[str, Any]:
+    """Live state of the cheque, KAG's ledger and RAB-06, plus every guard.
+    Reads only."""
+    R = _R162788
+    problems: List[str] = []
+
+    cheque = await db.cheques.find_one({"cheque_id": R["cheque_id"]}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="cheque %s not found" % R["cheque_id"])
+    deleted_row = await db.recorded_expenses.find_one(
+        {"expense_id": R["deleted_expense_id"]}, {"_id": 0, "expense_id": 1, "status": 1})
+    allocs = await db.cheque_allocations.find(
+        {"cheque_id": R["cheque_id"], "status": "active"}, {"_id": 0}).to_list(50)
+    vendor_credits = await db.suspense_entries.find(
+        {"linked_cheque_ids": R["cheque_id"]}, {"_id": 0, "entry_id": 1, "amount": 1, "vendor_name": 1}).to_list(50)
+    kag_rows = await db.contractor_suspense_ledger.find({"contractor_id": R["contractor_id"]}, {"_id": 0}).to_list(500)
+    cheque_rows = await db.contractor_suspense_ledger.find({"cheque_no": R["cheque_number"]}, {"_id": 0}).to_list(500)
+    reversals = await db.contractor_suspense_ledger.find(
+        {"reversed_ledger_id": R["credit_ledger_id"]}, {"_id": 0}).to_list(50)
+    credit = next((r for r in kag_rows if r.get("ledger_id") == R["credit_ledger_id"]), None)
+
+    wo = await db.project_work_orders.find_one({"work_order_id": R["work_order_id"]}, {"_id": 0, "stages": 1})
+    rab: Dict[str, Any] = {}
+    for stg in (wo or {}).get("stages") or []:
+        for pr in stg.get("payment_requests") or []:
+            if pr.get("request_id") in R["rab_request_ids"]:
+                rec = pr.get("payment_record") or {}
+                rab[pr["request_id"]] = {
+                    "stage_name": stg.get("name"), "amount": pr.get("amount"), "status": pr.get("status"),
+                    "old_payment_record": {k: rec.get(k) for k in (
+                        "cheque_no", "payment_entries", "suspense_credited", "released_at", "released_by_name")},
+                }
+    rab_payments = await db.recorded_expenses.find(
+        {"$or": [{"request_id": {"$in": R["rab_request_ids"]}},
+                 {"linked_request_ids": {"$in": R["rab_request_ids"]}}]},
+        {"_id": 0, "expense_id": 1, "amount": 1, "status": 1, "is_deleted": 1,
+         "payment_method": 1, "created_at": 1}).to_list(50)
+    live_rab_payments = [e for e in rab_payments
+                         if (e.get("status") or "").lower() not in _R162788_LIVE_EXCLUDED
+                         and not e.get("is_deleted")]
+
+    ours = [r for r in reversals if r.get("repair_tag") == R["repair_tag"]]
+    reversal_done = bool(ours)
+    cheque_done = (not cheque.get("used_for_expense_id")
+                   and (cheque.get("used_mark_cleared") or {}).get("repair_tag") == R["repair_tag"])
+
+    # ---- guards: anything different from what was reviewed stops the repair
+    if not cheque_done and cheque.get("used_for_expense_id") != R["deleted_expense_id"]:
+        problems.append("cheque #162788 is no longer locked to %s (used_for_expense_id=%r)"
+                        % (R["deleted_expense_id"], cheque.get("used_for_expense_id")))
+    if deleted_row:
+        problems.append("payment %s exists again (status %r) - the cheque is genuinely used"
+                        % (R["deleted_expense_id"], deleted_row.get("status")))
+    if allocs:
+        problems.append("%d active cheque_allocations now draw on #162788" % len(allocs))
+    if vendor_credits:
+        problems.append("%d vendor suspense credits now name #162788" % len(vendor_credits))
+    if not credit:
+        problems.append("credit %s is no longer in KAG's ledger" % R["credit_ledger_id"])
+    elif (abs(float(credit.get("amount") or 0) - R["credit_amount"]) > 0.005
+          or credit.get("type") != "credit" or credit.get("source_type") != "cheque_excess"
+          or credit.get("reference_id") != R["primary_request_id"]
+          or credit.get("cheque_no") != R["cheque_number"]):
+        problems.append("credit %s changed since review: %r" % (R["credit_ledger_id"], credit))
+    if reversals and not ours:
+        problems.append("credit %s was already reversed by something else: %s"
+                        % (R["credit_ledger_id"], [r.get("ledger_id") for r in reversals]))
+    if len(ours) > 1:
+        problems.append("%d repair reversals exist - expected at most one" % len(ours))
+    other_kag = [r for r in kag_rows if r.get("ledger_id") != R["credit_ledger_id"]
+                 and r.get("reversed_ledger_id") != R["credit_ledger_id"]]
+    if other_kag:
+        problems.append("KAG has %d other suspense entries since review: %s"
+                        % (len(other_kag), [r.get("ledger_id") for r in other_kag]))
+    other_cheque = [r for r in cheque_rows if r.get("ledger_id") != R["credit_ledger_id"]
+                    and r.get("reversed_ledger_id") != R["credit_ledger_id"]]
+    if other_cheque:
+        problems.append("other contractor ledger rows name cheque 162788: %s"
+                        % [r.get("ledger_id") for r in other_cheque])
+    for rid in R["rab_request_ids"]:
+        if (rab.get(rid) or {}).get("status") != "planning_approved":
+            problems.append("RAB-06 part %s is %r, not Pending Release (planning_approved)"
+                            % (rid, (rab.get(rid) or {}).get("status")))
+    if live_rab_payments:
+        problems.append("RAB-06 has a live payment again: %s" % [e.get("expense_id") for e in live_rab_payments])
+
+    token = "%s|%s|%s|%d|%d|%s|%d" % (
+        cheque.get("used_for_expense_id") or "cleared",
+        (credit or {}).get("ledger_id"), (credit or {}).get("amount"),
+        len(kag_rows), len(reversals),
+        ",".join("%s=%s" % (k, (rab.get(k) or {}).get("status")) for k in R["rab_request_ids"]),
+        len(live_rab_payments))
+    return {"cheque": cheque, "credit": credit, "kag_rows": kag_rows, "cheque_rows": cheque_rows,
+            "reversals": reversals, "ours": ours, "allocs": allocs, "vendor_credits": vendor_credits,
+            "rab": rab, "live_rab_payments": live_rab_payments, "deleted_row": deleted_row,
+            "reversal_done": reversal_done, "cheque_done": cheque_done,
+            "problems": problems, "confirm_token": token}
+
+
+@router.get("/admin/repair-162788-preview")
+async def repair_162788_preview(user: User = Depends(get_current_user)):
+    """TEMPORARY read-only preview of the cheque #162788 / KAG repair: live
+    before/after values and the four checks the user asked for. No writes."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+    from routes.projects import _get_contractor_suspense_balance
+    R = _R162788
+    ctx = await _r162788_context()
+    cheque, credit = ctx["cheque"], ctx["credit"]
+    PLACEHOLDER_NOW = "<time of apply>"
+
+    # ---- simulated after-state, built exactly as _r162788_apply writes it
+    planned_rev = (None if ctx["reversal_done"] or not credit
+                   else _r162788_reversal_row(credit, user, PLACEHOLDER_NOW))
+    if planned_rev:
+        planned_rev["ledger_id"] = "<new sl_ id>"
+    kag_after = ctx["kag_rows"] + ([planned_rev] if planned_rev else [])
+    cheque_rows_after = ctx["cheque_rows"] + ([planned_rev] if planned_rev else [])
+    cheque_after = {k: v for k, v in cheque.items() if k not in _R162788_USED_FIELDS}
+    if not ctx["cheque_done"]:
+        cheque_after["used_mark_cleared"] = {
+            **{k: cheque.get(k) for k in _R162788_USED_FIELDS},
+            "cleared_at": PLACEHOLDER_NOW, "cleared_by": user.user_id, "cleared_by_name": user.name,
+            "reason": "<the reason you type>", "repair_tag": R["repair_tag"]}
+        cheque_after["updated_at"] = PLACEHOLDER_NOW
+
+    def _cheque_view(c, avail, listed):
+        return {**{k: c.get(k) for k in ("cheque_number", "bank_name", "party_name", "amount", "status",
+                                          "is_opened", "updated_at", "used_mark_cleared")},
+                **{k: c.get(k, "<removed>") for k in _R162788_USED_FIELDS},
+                "balance_shown_by_app": avail,
+                "in_expense_popup_active_list": listed, "in_labour_popup_active_list": listed}
+
+    # ---- check 3: both popups read pickable_incoming_cheques()
+    avail_before = (await cheque_available_map([cheque]))[R["cheque_id"]]
+    active_now, _locked = await pickable_incoming_cheques()
+    listed_before = any(c.get("cheque_id") == R["cheque_id"] for c in active_now)
+    avail_after = (await cheque_available_map([cheque_after]))[R["cheque_id"]]
+    listed_after = (cheque_after.get("cheque_type") == "incoming" and cheque_after.get("is_opened") is True
+                    and cheque_after.get("status") not in _UNPICKABLE_CHEQUE_STATUS and avail_after > 0.5)
+
+    # ---- check 1: the real bounce code, dry run, against today's data
+    bounce_today = await _reverse_cheque_pooled_suspense_credit(cheque, user, dry_run=True)
+    bounce_after = _r162788_bounce_targets(cheque_after, cheque_rows_after)
+
+    # ---- checks 2 and 4: Labour suspense totals with RAB-06 unpaid / paid
+    rab_ids = set(R["rab_request_ids"])
+    tot = {
+        "before": {"rab06_unpaid": _r162788_totals(ctx["kag_rows"], set()),
+                   "rab06_paid": _r162788_totals(ctx["kag_rows"], rab_ids)},
+        "after": {"rab06_unpaid": _r162788_totals(kag_after, set()),
+                  "rab06_paid": _r162788_totals(kag_after, rab_ids)},
+    }
+    after_paid = tot["after"]["rab06_paid"]
+    rab_after_statuses = {k: v.get("status") for k, v in ctx["rab"].items()}  # repair never writes work orders
+
+    checks = {
+        "1_real_bounce_will_not_void_the_credit_again": {
+            "today_real_bounce_code_dry_run_would_void": [c.get("ledger_id") for c in bounce_today.get("credits_reversed", [])],
+            "after_repair_would_void": bounce_after,
+            "PASS": bounce_after == [],
+        },
+        "2_cheque_tile_nets_to_zero": {
+            "kag_tiles_if_rab06_paid_before": tot["before"]["rab06_paid"]["tiles"],
+            "kag_tiles_if_rab06_paid_after": after_paid["tiles"],
+            "PASS": all(abs(v) < 0.005 for v in after_paid["tiles"].values()),
+        },
+        "3_cheque_usable_in_expense_and_labour_popups": {
+            "balance_before": avail_before, "listed_before": listed_before,
+            "balance_after": avail_after, "listed_after": listed_after,
+            "PASS": abs(avail_after - float(cheque.get("amount") or 0)) < 0.005 and listed_after,
+        },
+        "4_rab06_stays_pending_no_duplicate": {
+            "statuses_before": {k: v.get("status") for k, v in ctx["rab"].items()},
+            "statuses_after": rab_after_statuses,
+            "live_payments_before": ctx["live_rab_payments"], "live_payments_after": ctx["live_rab_payments"],
+            "kag_balance_if_rab06_paid_before": tot["before"]["rab06_paid"]["balance"],
+            "kag_balance_if_rab06_paid_after": after_paid["balance"],
+            "repair_writes_work_orders_or_payments": False,
+            "PASS": (all(s == "planning_approved" for s in rab_after_statuses.values())
+                     and not ctx["live_rab_payments"] and abs(after_paid["balance"]) < 0.005),
+        },
+    }
+
+    status = ("already applied - nothing to do" if ctx["reversal_done"] and ctx["cheque_done"]
+              else "blocked - see problems" if ctx["problems"]
+              else "ready - waiting for your approval")
+    return fast_json({
+        "write_performed": False,
+        "read_only": True,
+        "apply_link_deployed": False,
+        "status": status,
+        "problems": ctx["problems"],
+        "all_checks_pass": all(c["PASS"] for c in checks.values()),
+        "checks": checks,
+        "1_cheque_162788": {
+            "before": _cheque_view(cheque, avail_before, listed_before),
+            "after": _cheque_view(cheque_after, avail_after, listed_after),
+        },
+        "2_kag_suspense": {
+            "contractor_id": R["contractor_id"],
+            "balance_today_live": await _get_contractor_suspense_balance(R["contractor_id"]),
+            "rows_before": ctx["kag_rows"],
+            "rows_after": kag_after,
+            "original_credit_changed_by_repair": False,
+            "totals": tot,
+        },
+        "3_rab06": {
+            "work_order_id": R["work_order_id"],
+            "before": ctx["rab"],
+            "after": "unchanged - the repair writes no work order and no payment",
+            "live_payments": ctx["live_rab_payments"],
+        },
+        "planned_writes_in_order": ([] if ctx["reversal_done"] else [
+            {"collection": "contractor_suspense_ledger", "op": "insert 1 row", "row": planned_rev}]) + ([] if ctx["cheque_done"] else [
+            {"collection": "cheques", "op": "update 1 document",
+             "filter": {"cheque_id": R["cheque_id"], "used_for_expense_id": R["deleted_expense_id"]},
+             "unset": list(_R162788_USED_FIELDS),
+             "set": {"used_mark_cleared": cheque_after.get("used_mark_cleared"), "updated_at": PLACEHOLDER_NOW}}]) + (
+            [] if ctx["reversal_done"] and ctx["cheque_done"] else [
+                {"collection": "audit_logs", "op": "insert 1 entry", "action": "repair_deleted_labour_payment"}]),
+        "safe_to_run_twice": [
+            "the reversal is written only while no row with this repair_tag reverses %s" % R["credit_ledger_id"],
+            "the cheque update matches only while used_for_expense_id is still %s" % R["deleted_expense_id"],
+            "ledger first, cheque second: a stop in between leaves the cheque locked and nothing doubled; running again finishes the rest",
+            "every guard is re-read at apply time; a change since this preview blocks the write",
+        ],
+        "history_kept": [
+            "nothing is deleted or edited in %s" % R["credit_ledger_id"],
+            "the cheque keeps its old used values under used_mark_cleared",
+            "one audit_logs entry records before/after, who and why",
+            "RAB-06's old payment_record and the 6 Nov deletion audit entry stay as they are",
+        ],
+        "confirm_token": ctx["confirm_token"],
+    })
+
+
+async def _r162788_apply(user: User, reason: str, confirm: str) -> Dict[str, Any]:
+    """The write the preview describes. No route calls this yet - it is wired
+    to an apply link only after the user approves. Guarded, idempotent,
+    audited; ledger first, cheque second."""
+    R = _R162788
+    if not reason or len(reason.strip()) < 5:
+        raise HTTPException(status_code=400, detail="A reason is required")
+    ctx = await _r162788_context()
+    if ctx["problems"]:
+        raise HTTPException(status_code=409, detail={"message": "blocked - nothing written", "problems": ctx["problems"]})
+    if confirm != ctx["confirm_token"]:
+        raise HTTPException(status_code=400, detail={
+            "message": "confirm token does not match the live values - nothing written; reopen the preview",
+            "expected": ctx["confirm_token"]})
+    now = datetime.now(timezone.utc).isoformat()
+    written: List[str] = []
+
+    if not ctx["reversal_done"]:
+        if not await db.contractor_suspense_ledger.find_one(
+                {"reversed_ledger_id": R["credit_ledger_id"]}, {"_id": 0, "ledger_id": 1}):
+            row = _r162788_reversal_row(ctx["credit"], user, now)
+            await db.contractor_suspense_ledger.insert_one(dict(row))
+            written.append("contractor_suspense_ledger %s" % row["ledger_id"])
+
+    if not ctx["cheque_done"]:
+        old = {k: ctx["cheque"].get(k) for k in _R162788_USED_FIELDS}
+        res = await db.cheques.update_one(
+            {"cheque_id": R["cheque_id"], "used_for_expense_id": R["deleted_expense_id"]},
+            {"$unset": {k: "" for k in _R162788_USED_FIELDS},
+             "$set": {"used_mark_cleared": {**old, "cleared_at": now, "cleared_by": user.user_id,
+                                            "cleared_by_name": user.name, "reason": reason.strip(),
+                                            "repair_tag": R["repair_tag"]},
+                      "updated_at": now}})
+        if res.modified_count == 1:
+            written.append("cheques %s" % R["cheque_id"])
+
+    after = await _r162788_context()
+    if written:
+        await create_audit_log(user.user_id, "repair_deleted_labour_payment", "cheque", R["cheque_id"], {
+            "repair_tag": R["repair_tag"], "reason": reason.strip(), "written": written,
+            "cheque_before": {k: ctx["cheque"].get(k) for k in _R162788_USED_FIELDS},
+            "cheque_available_after": (await cheque_available_map([after["cheque"]]))[R["cheque_id"]],
+            "voided_credit": R["credit_ledger_id"],
+            "reversal_ledger_id": [r.get("ledger_id") for r in after["ours"]],
+        })
+    return {
+        "write_performed": bool(written),
+        "written": written,
+        "already_applied": not written,
+        "problems_after": after["problems"],
+        "cheque_available_after": (await cheque_available_map([after["cheque"]]))[R["cheque_id"]],
+        "reversal_rows": after["ours"],
+    }
