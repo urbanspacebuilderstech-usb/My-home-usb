@@ -12358,34 +12358,14 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
     stage_total = float(target_stage.get("amount", 0) or 0)
     stage_balance = max(0.0, stage_total - released - pending_other - bill_amount)
 
-    # Feb 20 2026 — Drop the HDFC-only bank filter at user's request:
-    # any opened incoming cheque (any bank) should be selectable for Labour
-    # RAB release. Status filter aligned with the Material accountant flow.
-    # 340 legacy cheques have no `is_opened` field at all → treat as locked
-    # (the CRE open-cheque workflow was added later than these legacy rows).
-    # Feb 28 2026 — also exclude `deleted` and `disabled` cheques (Cheque
-    # Management already hides them; they must never reappear as pickable).
-    _excluded_status = ["bounced", "cancelled", "cleared", "rejected", "deleted", "disabled"]
-    active_cheques = await db.cheques.find({
-        "cheque_type": "incoming",
-        "is_opened": True,
-        "status": {"$nin": _excluded_status},
-        "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
-    }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
-    inactive_cheques = await db.cheques.find({
-        "cheque_type": "incoming",
-        "$or": [
-            {"is_opened": False},
-            {"is_opened": {"$exists": False}},
-            {"is_opened": None},
-        ],
-        "status": {"$nin": _excluded_status},
-        # And not already used for an expense:
-        "used_for_expense_id": {"$in": [None]} if False else {"$exists": False},
-    }, {"_id": 0}).sort("cheque_date", -1).to_list(500)
-    # The `$or` for used_for_expense_id can't co-exist with the outer `$or`
-    # in a single dict literal in Python — easiest to refilter in-memory.
-    inactive_cheques = [c for c in inactive_cheques if not c.get("used_for_expense_id")]
+    # Feb 20 2026 — any opened incoming cheque (any bank) is selectable for
+    # Labour RAB release; legacy rows with no `is_opened` field count as locked.
+    # Nov 10 2026 — the SAME list Material Pay & Settle shows: opened cheques
+    # that still have money left, each with `available_amount`. This used to
+    # check only `used_for_expense_id`, so cheques already spent on vendor
+    # bills (#000036, #157662 …) were offered here at full face value.
+    from routes.financial import pickable_incoming_cheques
+    active_cheques, inactive_cheques = await pickable_incoming_cheques()
 
     # Enrich with project_name
     project_cache = {}
@@ -12639,31 +12619,45 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         for ch in docs:
             if ch.get("status") in ("deleted", "disabled", "cancelled", "bounced", "cleared", "rejected"):
                 raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} is {ch.get('status')} and cannot be used")
-            if ch.get("used_for_expense_id"):
-                raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} already used")
             if not ch.get("is_opened"):
                 raise HTTPException(status_code=400, detail=f"Cheque {ch.get('cheque_number')} not yet opened by CRE")
             cheques_by_id[ch["cheque_id"]] = ch
+        # Nov 10 2026 — a cheque is worth what is LEFT on it, the same rule
+        # Material Pay & Settle uses (cheque_available_map). This used to
+        # refuse only cheques carrying `used_for_expense_id` and then count
+        # the full face value, so a cheque already spent on vendor bills
+        # could be released again at 2,00,000 — the same money paid twice.
+        from routes.financial import cheque_available_map
+        _left = await cheque_available_map(docs)
+        for ch in docs:
+            left = _left.get(ch["cheque_id"], 0.0)
+            if left <= 0.5:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cheque {ch.get('cheque_number')} has no money left — it was already used for other bills. Pick another cheque.")
+            ch["available_amount"] = left
+
+    def _cheque_left(cid: str) -> float:
+        return float(cheques_by_id[cid]["available_amount"])
 
     # Auto-sum cheque-row amounts from their picked cheques (multi-mode only).
     # Feb 20 2026 — Only auto-fill when client left it blank. If the client
     # explicitly sent `amount < sum(cheques)`, treat the diff as suspense
     # excess (extra cheque value beyond bill → credited to contractor
     # suspense). This is the "₹1,00,000 cheque vs ₹60,672 bill" flow.
-    if multi_mode:
-        for e in payment_entries_list:
-            if e["method"] == "cheque" and e["cheque_ids"]:
-                cheque_sum = sum(float(cheques_by_id[cid].get("amount") or 0) for cid in e["cheque_ids"])
-                if e.get("amount") in (None, "", 0):
-                    e["amount"] = cheque_sum
-                else:
-                    try:
-                        provided = float(e["amount"])
-                    except (TypeError, ValueError):
-                        provided = 0.0
-                    if provided > cheque_sum + 0.01:
-                        raise HTTPException(status_code=400, detail=f"Row amount ({provided}) cannot exceed picked cheques total ({cheque_sum})")
-                    e["amount"] = provided
+    for e in payment_entries_list:
+        if e["method"] == "cheque" and e["cheque_ids"]:
+            cheque_sum = round(sum(_cheque_left(cid) for cid in e["cheque_ids"]), 2)
+            if multi_mode and e.get("amount") in (None, "", 0):
+                e["amount"] = cheque_sum
+                continue
+            try:
+                provided = float(e["amount"])
+            except (TypeError, ValueError):
+                provided = 0.0
+            if provided > cheque_sum + 0.01:
+                raise HTTPException(status_code=400, detail=f"Row amount (₹{provided:,.0f}) is more than the money left on the picked cheque(s) (₹{cheque_sum:,.0f})")
+            e["amount"] = provided
 
     entries_sum = sum(e["amount"] for e in payment_entries_list)
     if abs(entries_sum - payable_target) > 0.5:
@@ -12671,6 +12665,19 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             status_code=400,
             detail=f"Sum of payment entries (₹{entries_sum:,.0f}) does not match payable (₹{payable_target:,.0f})"
         )
+
+    # Nov 10 2026 — per cheque, how much of what is left on it pays this bill
+    # and how much is excess (credited to contractor suspense below). Rows fill
+    # from their cheques in the order picked.
+    cheque_draws: Dict[str, Dict[str, float]] = {}
+    for e in payment_entries_list:
+        if e["method"] == "cheque" and e["cheque_ids"]:
+            still_owed = float(e["amount"] or 0)
+            for cid in e["cheque_ids"]:
+                left = _cheque_left(cid)
+                bill_part = round(min(left, max(0.0, still_owed)), 2)
+                still_owed -= bill_part
+                cheque_draws[cid] = {"bill": bill_part, "excess": round(left - bill_part, 2)}
 
     # Aggregate cheque excess across all cheque rows (each row may slightly overshoot).
     selected_cheque_docs = []
@@ -12681,7 +12688,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             for cid in e["cheque_ids"]:
                 ch = cheques_by_id[cid]
                 selected_cheque_docs.append(ch)
-                cheque_amount_total += float(ch.get("amount") or 0)
+                cheque_amount_total += _cheque_left(cid)
                 if ch.get("cheque_number"):
                     cheque_no_aggregated.append(ch["cheque_number"])
     if not multi_mode and payment_method == "cheque" and cheque_ids:
@@ -12695,7 +12702,7 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
         excess = 0.0
         for e in payment_entries_list:
             if e["method"] == "cheque" and e["cheque_ids"]:
-                row_cheque_total = sum(float(cheques_by_id[cid].get("amount") or 0) for cid in e["cheque_ids"])
+                row_cheque_total = sum(_cheque_left(cid) for cid in e["cheque_ids"])
                 excess += max(0.0, row_cheque_total - e["amount"])
         cheque_excess = excess
         cheque_amount = cheque_amount_total
@@ -12819,6 +12826,8 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
     #     emitted with payment_method = "cheque" (because the suspense
     #     originated from a cheque-excess credit) and description tagged
     #     "Suspense applied to <stage>".
+    # Which cashbook row carries each cheque — see the cheque marking below.
+    cheque_row_expense_id: Dict[str, str] = {}
     if multi_mode and (use_suspense > 0 or (payment_entries_list and len(payment_entries_list) > 0)):
         rows_to_insert = []
         # Suspense row first so it appears at the top of the labour list.
@@ -12842,6 +12851,9 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             row_suspense = info["amount"] if info["is_suspense"] else 0.0
             ent = info["ent"]
             row_expense_id = expense_id if idx == 0 else f"exp_{uuid.uuid4().hex[:12]}"
+            if row_method == "cheque" and not info["is_suspense"]:
+                for _cid in (ent.get("cheque_ids") or []):
+                    cheque_row_expense_id[_cid] = row_expense_id
             row_entry = {
                 "expense_id": row_expense_id,
                 "project_id": wo.get("project_id"),
@@ -12966,12 +12978,55 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
 
     # Mark each selected cheque as consumed (links to this expense; CRE/Accountant
     # views can show "Used for RAB-XX · Contractor"). Idempotent on retries.
+    # Nov 10 2026 — and record the draw in cheque_allocations, the ledger
+    # Material Pay & Settle reads. A labour release takes everything left on
+    # the cheque. Before this a cheque part-used by vendor bills kept showing
+    # its remainder in Material after Labour had already spent it.
+    # Two rows per cheque:
+    #   • the bill share, tied to the cashbook row that carries this cheque
+    #     (not row 0, which can be the suspense or a cash row). Sending that
+    #     row back to Approvals returns it to the cheque
+    #     (reverse_cheque_allocations_for_expense); a bounce marks that row.
+    #   • the excess that went to contractor suspense, tied to no expense, so
+    #     a send-back never returns it. The excess credit stays in
+    #     contractor_suspense_ledger keyed to this RAB, and
+    #     _get_contractor_suspense_balance counts it again as soon as the RAB
+    #     is re-released — returning it to the cheque too would count it twice.
     if selected_cheque_docs:
         for ch in selected_cheque_docs:
+            cid = ch.get("cheque_id")
+            row_eid = cheque_row_expense_id.get(cid, expense_id)
+            draw = cheque_draws.get(cid) or {"bill": round(_cheque_left(cid), 2), "excess": 0.0}
+            base = {
+                "cheque_id": cid,
+                "cheque_number": ch.get("cheque_number"),
+                "request_id": request_id,
+                "request_type": "labour",
+                "vendor_name": wo.get("contractor_name", ""),
+                "contractor_id": contractor_id,
+                "work_order_id": work_order_id,
+                "project_id": wo.get("project_id"),
+                "status": "active",
+                "created_at": now,
+                "created_by": user.user_id,
+                "created_by_name": user.name,
+            }
+            if draw["bill"] > 0.005:
+                await db.cheque_allocations.insert_one({
+                    **base, "allocation_id": f"cha_{uuid.uuid4().hex[:10]}",
+                    "expense_id": row_eid, "amount": draw["bill"],
+                })
+            if draw["excess"] > 0.005:
+                await db.cheque_allocations.insert_one({
+                    **base, "allocation_id": f"cha_{uuid.uuid4().hex[:10]}",
+                    "expense_id": None, "released_with_expense_id": row_eid,
+                    "amount": draw["excess"], "source": "labour_cheque_excess",
+                    "note": f"Excess credited to {wo.get('contractor_name', '')}'s contractor suspense",
+                })
             await db.cheques.update_one(
                 {"cheque_id": ch.get("cheque_id")},
                 {"$set": {
-                    "used_for_expense_id": expense_id,
+                    "used_for_expense_id": row_eid,
                     "used_for_request_id": request_id,
                     "used_for_rab_number": target_pr.get("rab_number"),
                     "used_for_contractor_name": wo.get("contractor_name", ""),

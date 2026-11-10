@@ -40,6 +40,10 @@ const TRANSFER_TO_ACCOUNTS = ['HDFC Current', 'HDFC Savings', 'Escrow A/c'];
 const fmt = (n) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 
+// Money left on a cheque (`available_amount` from the pay-context), falling
+// back to face value for a row the API hasn't annotated.
+export const chequeLeft = (c) => Number(c?.available_amount ?? c?.amount ?? 0) || 0;
+
 export default function MultiPaymentEntryRows({
   entries,
   setEntries,
@@ -79,9 +83,11 @@ export default function MultiPaymentEntryRows({
         // Feb 20 2026 — Mr Sudharsan / Appala Naidu ₹1,00,000 cheque vs
         // ₹60,672 bill case: extra ₹39,328 now flows to Suspense Account
         // instead of disabling Process Release.
+        // Nov 10 2026 — a cheque is worth what is LEFT on it (same as
+        // Material Pay & Settle), not its printed face value.
         const sumCheques = availableCheques
           .filter((c) => next.includes(c.cheque_id))
-          .reduce((s, c) => s + (Number(c.amount) || 0), 0);
+          .reduce((s, c) => s + chequeLeft(c), 0);
         const otherRowsSum = rows.reduce((s, e, j) => (j === i ? s : s + (Number(e.amount) || 0)), 0);
         const cap = Math.max(0, (Number(targetTotal) || 0) - otherRowsSum);
         const amountForBill = Math.min(sumCheques, cap);
@@ -263,7 +269,7 @@ function ChequePickerSubRow({ idx, row, allCheques, inactiveCheques = [], claime
                 <th className="w-6 p-1"></th>
                 <th className="text-left p-1">Cheque #</th>
                 <th className="text-left p-1">Bank</th>
-                <th className="text-right p-1">Amount</th>
+                <th className="text-right p-1">Available</th>
               </tr>
             </thead>
             <tbody>
@@ -281,7 +287,16 @@ function ChequePickerSubRow({ idx, row, allCheques, inactiveCheques = [], claime
                 </td>
                 <td className="p-1 font-mono">{c.cheque_number}</td>
                 <td className="p-1">{c.bank_name || c.bank || '—'}</td>
-                <td className="p-1 text-right font-semibold">{fmt(c.amount)}</td>
+                <td className="p-1 text-right" data-testid={`multi-pay-row-${idx}-cheque-available-${c.cheque_id}`}>
+                  <span className="font-semibold">{fmt(chequeLeft(c))}</span>
+                  {/* Part-used cheque: show what is left against the face
+                      value, as Material Pay & Settle does. */}
+                  {Number(c.allocated_amount) > 0.5 && (
+                    <span className="block text-[9px] text-gray-400 font-normal">
+                      of {fmt(c.amount)} · {fmt(c.allocated_amount)} used
+                    </span>
+                  )}
+                </td>
               </tr>
             );
           })}

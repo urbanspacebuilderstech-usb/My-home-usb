@@ -10703,6 +10703,45 @@ async def cheque_available_map(cheque_docs: List[Dict[str, Any]]) -> Dict[str, f
     return out
 
 
+# Status sub-state (issued / received / post_dated / deposited) doesn't matter
+# for picking — only terminally-resolved / removed cheques are excluded.
+# NOTE (Feb 28 2026): `deleted` was missing once — a soft-deleted cheque (which
+# Cheque Management already hides) leaked into the Pay & Settle picker.
+_UNPICKABLE_CHEQUE_STATUS = ["bounced", "cancelled", "cleared", "rejected", "deleted", "disabled"]
+
+
+async def pickable_incoming_cheques(limit: int = 400):
+    """The cheques a payment can draw on, as (active, locked).
+
+    active = CRE-opened, locked = not opened yet (the Accountant can ask CRE
+    to open one). Each row carries `available_amount` (what is left on it)
+    and `allocated_amount` (what bills already took), and a cheque with
+    nothing left is dropped (Aug 18 2026: selectable on REMAINING balance,
+    not on "never touched").
+
+    Nov 10 2026 — shared by Material Pay & Settle and Labour Release. Labour
+    had its own query that only checked `used_for_expense_id`, so it offered
+    cheques already spent on vendor bills at full face value: Cheque
+    Management showed 10 opened, Pay & Settle 1, Labour all 10. #000036
+    (Mr Shiva, 2,00,000) had paid five SP ENTERPRISES bills (1,76,008) and its
+    last 23,992 went to their suspense on the Sep 18 backfill, which never
+    sets used_for_expense_id — so Labour still offered the full 2,00,000.
+    """
+    async def _load(opened_filter):
+        rows = await db.cheques.find({
+            "cheque_type": "incoming",
+            "is_opened": opened_filter,
+            "status": {"$nin": _UNPICKABLE_CHEQUE_STATUS},
+        }, {"_id": 0}).sort("cheque_date", -1).to_list(limit)
+        avail = await cheque_available_map(rows)
+        for c in rows:
+            c["available_amount"] = avail.get(c["cheque_id"], 0.0)
+            c["allocated_amount"] = round(float(c.get("amount") or 0) - c["available_amount"], 2)
+        return [c for c in rows if c["available_amount"] > 0.5]
+
+    return await _load(True), await _load({"$ne": True})
+
+
 async def reverse_cheque_allocations_for_expense(expense_id: str, reason: str,
                                                  user_id: Optional[str] = None) -> float:
     """Return one expense's cheque draws to their cheques. Returns the total
@@ -12475,40 +12514,9 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
     # the dialog's displayed figure and the enforced cap can never disagree.
     existing_suspense = await _live_vendor_suspense_balance(suspense_type, vendor_name, req)
 
-    # All active CRE-opened incoming cheques that haven't been consumed yet.
-    # Status sub-state (issued / received / post_dated / deposited) doesn't matter
-    # for picking — we only exclude terminally-resolved / removed ones
-    # (bounced, cancelled, cleared, rejected, deleted, disabled).
-    # NOTE (Feb 28 2026): `deleted` was missing here — a soft-deleted cheque
-    # (which Cheque Management already hides) was leaking into this picker
-    # and showing up as pickable in the Pay & Settle dialog.
-    _excluded_status = ["bounced", "cancelled", "cleared", "rejected", "deleted", "disabled"]
-    # Aug 18 2026 — Selectable on REMAINING balance, not "never touched". A
-    # cheque part-drawn by an earlier bill still has money on it and must stay
-    # pickable for the rest; one fully drawn drops out on available == 0
-    # rather than on the presence of used_for_expense_id.
-    active_cheques = await db.cheques.find({
-        "cheque_type": "incoming",
-        "is_opened": True,
-        "status": {"$nin": _excluded_status},
-    }, {"_id": 0}).sort("cheque_date", -1).to_list(400)
-    _avail_active = await cheque_available_map(active_cheques)
-    for _c in active_cheques:
-        _c["available_amount"] = _avail_active.get(_c["cheque_id"], 0.0)
-        _c["allocated_amount"] = round(float(_c.get("amount") or 0) - _c["available_amount"], 2)
-    active_cheques = [c for c in active_cheques if c["available_amount"] > 0.5]
-
-    # Inactive (locked / not yet CRE-opened) incoming cheques — Accountant can "Request Open"
-    inactive_cheques = await db.cheques.find({
-        "cheque_type": "incoming",
-        "is_opened": {"$ne": True},
-        "status": {"$nin": _excluded_status},
-    }, {"_id": 0}).sort("cheque_date", -1).to_list(400)
-    _avail_inactive = await cheque_available_map(inactive_cheques)
-    for _c in inactive_cheques:
-        _c["available_amount"] = _avail_inactive.get(_c["cheque_id"], 0.0)
-        _c["allocated_amount"] = round(float(_c.get("amount") or 0) - _c["available_amount"], 2)
-    inactive_cheques = [c for c in inactive_cheques if c["available_amount"] > 0.5]
+    # Opened cheques with money left (active) and not-yet-opened ones the
+    # Accountant can "Request Open" (inactive). Same list Labour Release uses.
+    active_cheques, inactive_cheques = await pickable_incoming_cheques()
 
     # Enrich with project name for both lists
     project_cache = {}

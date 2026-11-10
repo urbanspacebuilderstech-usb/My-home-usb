@@ -21,7 +21,7 @@ import { Badge } from './ui/badge';
 import {
   PiggyBank, CheckCircle, Wallet, Hammer, FileText, Loader2,
 } from 'lucide-react';
-import MultiPaymentEntryRows from './MultiPaymentEntryRows';
+import MultiPaymentEntryRows, { chequeLeft } from './MultiPaymentEntryRows';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -103,7 +103,7 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
       if (e.method !== 'cheque' || !e.cheque_ids?.length) return;
       const sumChq = (ctx?.active_cheques || [])
         .filter((c) => e.cheque_ids.includes(c.cheque_id))
-        .reduce((s, c) => s + (Number(c.amount) || 0), 0);
+        .reduce((s, c) => s + chequeLeft(c), 0);
       excess += Math.max(0, sumChq - (Number(e.amount) || 0));
     });
     return excess;
