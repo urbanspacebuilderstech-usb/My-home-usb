@@ -19625,10 +19625,22 @@ async def repair_162788_preview(user: User = Depends(get_current_user)):
     status = ("already applied - nothing to do" if ctx["reversal_done"] and ctx["cheque_done"]
               else "blocked - see problems" if ctx["problems"]
               else "ready - waiting for your approval")
+    # Nov 10 2026 — apply approved by the user. The link carries this
+    # preview's confirm token, so it writes only while the live values still
+    # match what is shown here; the reason is pre-filled and can be edited
+    # in the address bar before opening.
+    from urllib.parse import quote
+    apply_link = None
+    if status.startswith("ready"):
+        apply_link = ("https://myhomeusb.com/api/admin/repair-162788-apply?confirm=%s&reason=%s" % (
+            quote(ctx["confirm_token"], safe=""),
+            quote("Payment exp_11654f842dc6 (KAG RAB-06) deleted on 6 Nov; cheque 162788 never used; "
+                  "void the 1,90,000 KAG credit", safe="")))
     return fast_json({
         "write_performed": False,
         "read_only": True,
-        "apply_link_deployed": False,
+        "apply_link_deployed": True,
+        "apply_link": apply_link,
         "status": status,
         "problems": ctx["problems"],
         "all_checks_pass": all(c["PASS"] for c in checks.values()),
@@ -19676,9 +19688,9 @@ async def repair_162788_preview(user: User = Depends(get_current_user)):
 
 
 async def _r162788_apply(user: User, reason: str, confirm: str) -> Dict[str, Any]:
-    """The write the preview describes. No route calls this yet - it is wired
-    to an apply link only after the user approves. Guarded, idempotent,
-    audited; ledger first, cheque second."""
+    """The write the preview describes, reached only through
+    /admin/repair-162788-apply (added once the user approved the apply step).
+    Guarded, idempotent, audited; ledger first, cheque second."""
     R = _R162788
     if not reason or len(reason.strip()) < 5:
         raise HTTPException(status_code=400, detail="A reason is required")
@@ -19726,5 +19738,19 @@ async def _r162788_apply(user: User, reason: str, confirm: str) -> Dict[str, Any
         "already_applied": not written,
         "problems_after": after["problems"],
         "cheque_available_after": (await cheque_available_map([after["cheque"]]))[R["cheque_id"]],
+        "cheque_used_mark_cleared": after["cheque"].get("used_mark_cleared"),
         "reversal_rows": after["ours"],
+        "kag_balance_if_rab06_paid_after": _r162788_totals(after["kag_rows"], set(R["rab_request_ids"]))["balance"],
+        "rab06_statuses_after": {k: v.get("status") for k, v in after["rab"].items()},
+        "next": "re-open /api/admin/repair-162788-preview - it should read 'already applied - nothing to do'",
     }
+
+
+@router.api_route("/admin/repair-162788-apply", methods=["GET", "POST"])
+async def repair_162788_apply(confirm: str, reason: str, user: User = Depends(get_current_user)):
+    """TEMPORARY. Apply the cheque #162788 / KAG repair exactly as the preview
+    shows it. Super Admin only; needs the preview's confirm token (live values
+    unchanged since) and a reason. A second call writes nothing."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super admin only")
+    return fast_json(await _r162788_apply(user, reason, confirm))
