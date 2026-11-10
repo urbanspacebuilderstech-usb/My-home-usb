@@ -4560,6 +4560,320 @@ async def get_cheques(
     return await _hide_rejected_collection_cheques(cheques)
 
 
+def _cheque_tab(c: Dict[str, Any]) -> str:
+    """The Cheque Management tab a cheque is counted under — same rules as
+    ChequeListView.jsx (stats + tab filter)."""
+    if c.get("is_disabled"):
+        return "Disabled"
+    status = c.get("status") or ""
+    if status == "bounced":
+        return "Bounced"
+    if c.get("used_for_expense_id"):
+        return "Issued"
+    if c.get("cheque_type") == "incoming" and status != "cancelled":
+        if c.get("is_opened"):
+            return "Opened"
+        return "Awaiting CRE" if c.get("open_requested") else "Received"
+    return "All only"
+
+
+def _inr(x: float) -> str:
+    """₹ in Indian grouping; paise only when there are any."""
+    neg = x < 0
+    x = abs(round(float(x or 0), 2))
+    whole = int(x)
+    paise = round((x - whole) * 100)
+    if paise == 100:
+        whole, paise = whole + 1, 0
+    s = str(whole)
+    if len(s) > 3:
+        head, tail = s[:-3], s[-3:]
+        groups = []
+        while len(head) > 2:
+            groups.insert(0, head[-2:])
+            head = head[:-2]
+        if head:
+            groups.insert(0, head)
+        s = ",".join(groups + [tail])
+    return f"{'-' if neg else ''}₹{s}" + (f".{paise:02d}" if paise else "")
+
+
+@router.get("/accountant/cheque-usage-report")
+async def cheque_usage_report(format: str = "text", user: User = Depends(get_current_user)):
+    """Nov 10 2026 — READ-ONLY. Every cheque Cheque Management lists, with how
+    much of it has been used and how much is left, a count of used / part
+    used / not used, and the cheques where the Cheque Management tab and the
+    money disagree. Writes nothing.
+
+    "Left" is cheque_available_map — the figure Material Pay & Settle and
+    Labour Release offer (face − active draws − suspense credits it seeded;
+    0 for a cheque spent the old way, before draws were recorded). The tabs
+    look only at the used_for_expense_id mark, which a part-drawn cheque, a
+    cheque whose excess went to suspense, and the Sep 18 backfill never set,
+    so "Opened" can hold cheques with nothing left.
+
+    Also lists live payment rows that name a cheque but have no draw record
+    (labour releases before 4734bdf6, payments before draws existed): where
+    those plus the draws exceed the face value, the same money may have been
+    spent twice.
+
+    ?format=csv returns the full list as a spreadsheet instead.
+    """
+    from fastapi.responses import PlainTextResponse
+    from routes.financial import cheque_available_map, _cheque_seeded_suspense
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    _EXCL = {"rejected", "accountant_rejected", "accounts_rejected", "under_correction", "cheque_bounced"}
+
+    cheques = await db.cheques.find({"status": {"$ne": "deleted"}}, {"_id": 0}).to_list(None)
+    cheques = await _hide_rejected_collection_cheques(cheques)
+    pids = list({c.get("project_id") for c in cheques if c.get("project_id")})
+    proj_names = {p["project_id"]: p.get("name") for p in await db.projects.find(
+        {"project_id": {"$in": pids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(None)}
+    ids = [c["cheque_id"] for c in cheques if c.get("cheque_id")]
+
+    left_map = await cheque_available_map(cheques)
+    seeded = await _cheque_seeded_suspense(ids)
+    allocs_by_cheque: Dict[str, list] = {}
+    async for a in db.cheque_allocations.find({"cheque_id": {"$in": ids}, "status": "active"}, {"_id": 0}):
+        allocs_by_cheque.setdefault(a["cheque_id"], []).append(a)
+
+    # Live payment rows that name a cheque. A row paid from vendor suspense
+    # carries the cheque that seeded the pool for display only — no money
+    # left the cheque again — so it is left out (same rule as
+    # trace_cheque_usage).
+    rows_by_cheque: Dict[str, list] = {}
+    idset = set(ids)
+    async for r in db.recorded_expenses.find(
+        {"$or": [{"cheque_id": {"$in": ids}}, {"cheque_ids": {"$in": ids}},
+                 {"payment_legs.cheque_id": {"$in": ids}}]},
+        {"_id": 0, "expense_id": 1, "category": 1, "vendor_name": 1, "contractor_name": 1,
+         "description": 1, "amount": 1, "tendered_amount": 1, "status": 1, "is_deleted": 1,
+         "created_at": 1, "cheque_id": 1, "cheque_ids": 1, "payment_legs": 1, "source": 1,
+         "credit_applied": 1, "request_id": 1},
+    ):
+        if (r.get("status") or "").lower() in _EXCL or r.get("is_deleted"):
+            continue
+        if (r.get("source") or "") == "approval_suspense" or float(r.get("credit_applied") or 0) > 0.5:
+            continue
+        linked = {x for x in ([r.get("cheque_id")] + list(r.get("cheque_ids") or [])) if x in idset}
+        leg_amt: Dict[str, float] = {}
+        for leg in (r.get("payment_legs") or []):
+            if isinstance(leg, dict) and leg.get("cheque_id") in idset:
+                linked.add(leg["cheque_id"])
+                if leg.get("amount") is not None:
+                    leg_amt[leg["cheque_id"]] = leg_amt.get(leg["cheque_id"], 0.0) + float(leg.get("amount") or 0)
+        if not linked:
+            continue
+        whole = float(r.get("tendered_amount") or 0) or float(r.get("amount") or 0)
+        for cid in linked:
+            share = leg_amt.get(cid, whole / len(linked))
+            rows_by_cheque.setdefault(cid, []).append({**r, "_share": round(share, 2), "_shared": len(linked) > 1})
+
+    def _day(v):
+        if not v:
+            return ""
+        return v[:10] if isinstance(v, str) else v.isoformat()[:10]
+
+    report = []
+    for c in cheques:
+        cid = c.get("cheque_id")
+        face = round(float(c.get("amount") or 0), 2)
+        left = round(left_map.get(cid, face), 2)
+        used = round(face - left, 2)
+        allocs = allocs_by_cheque.get(cid, [])
+        drawn = round(sum(float(a.get("amount") or 0) for a in allocs), 2)
+        seed = round(seeded.get(cid, 0.0), 2)
+        alloc_eids = {a.get("expense_id") for a in allocs if a.get("expense_id")} | \
+                     {a.get("released_with_expense_id") for a in allocs if a.get("released_with_expense_id")}
+        prows = rows_by_cheque.get(cid, [])
+        undrawn_rows = [r for r in prows if r.get("expense_id") not in alloc_eids]
+        undrawn_amt = round(sum(r["_share"] for r in undrawn_rows), 2)
+
+        status = c.get("status") or ""
+        tab = _cheque_tab(c)
+        if c.get("is_disabled"):
+            state = "Disabled"
+        elif status in ("bounced", "cancelled"):
+            state = status.title()
+        elif c.get("cheque_type") != "incoming":
+            state = "Outgoing"
+        elif status == "cleared" and used <= 0.5:
+            state = "Cleared to bank"
+        elif left <= 0.5:
+            state = "Fully used"
+        elif used <= 0.5:
+            state = "Not used"
+        else:
+            state = "Part used"
+
+        flags = []
+        incoming_live = c.get("cheque_type") == "incoming" and state in ("Not used", "Part used", "Fully used", "Cleared to bank")
+        if tab == "Opened" and left <= 0.5:
+            flags.append("A")  # Opened tab, nothing left
+        if tab == "Issued" and left > 0.5 and incoming_live:
+            flags.append("B")  # Issued tab, money left
+        # The Sep 18 backfill and the repair scripts wrote each swept leftover
+        # twice: a `historical_opening` draw AND a suspense credit linked to
+        # the cheque. Same rupees, so the credit is not added again here.
+        hist = sum(float(a.get("amount") or 0) for a in allocs if a.get("source") == "historical_opening")
+        seed_net = max(0.0, seed - hist)
+        if drawn + seed_net > face + 1:
+            flags.append("C")  # draws + suspense credits exceed face
+        # A row with no draw record either sits on a cheque the app still
+        # shows money on, or comes on top of recorded draws. Its amount is the
+        # whole tender, excess included, so suspense credits are not added.
+        if undrawn_rows and incoming_live and (
+                left > 0.5 or (drawn > 0.5 and drawn + undrawn_amt > face + 1)):
+            flags.append("D")  # payment row with no draw record: left may be wrong / double use
+        if state == "Not used" and not c.get("is_opened") and (drawn > 0.5 or prows):
+            flags.append("E")  # not opened but already paid bills
+
+        paid_to = []
+        for name in [a.get("vendor_name") for a in allocs] + \
+                    [r.get("contractor_name") or r.get("vendor_name") for r in prows]:
+            if name and name not in paid_to:
+                paid_to.append(name)
+        report.append({
+            "c": c, "face": face, "used": used, "left": left, "state": state, "tab": tab,
+            "drawn": drawn, "seeded": seed, "seed_net": round(seed_net, 2), "allocs": allocs, "rows": prows,
+            "undrawn_rows": undrawn_rows, "undrawn_amt": undrawn_amt, "flags": flags,
+            "paid_to": paid_to, "date": _day(c.get("cheque_date")),
+            "project": c.get("project_name") or proj_names.get(c.get("project_id")) or "",
+        })
+    report.sort(key=lambda r: (r["date"], str(r["c"].get("cheque_number") or "")), reverse=True)
+
+    if format == "csv":
+        import csv
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["S.No", "Cheque No", "Cheque Date", "Type", "Bank", "Party", "Project",
+                    "Face Value", "Used", "Left", "State", "Cheque Mgmt Tab", "CRE Opened",
+                    "Status", "Paid To", "Checks"])
+        for i, r in enumerate(report, 1):
+            c = r["c"]
+            w.writerow([i, c.get("cheque_number") or "", r["date"], c.get("cheque_type") or "",
+                        c.get("bank_name") or "", c.get("party_name") or "", r["project"],
+                        r["face"],
+                        r["used"] if r["state"] in ("Not used", "Part used", "Fully used") else "",
+                        r["left"] if r["state"] in ("Not used", "Part used", "Fully used") else "",
+                        r["state"], r["tab"],
+                        "Yes" if c.get("is_opened") else "No", c.get("status") or "",
+                        "; ".join(r["paid_to"]), " ".join(r["flags"])])
+        stamp = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%Y-%m-%d")
+        return Response(content="﻿" + buf.getvalue(), media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="cheques-{stamp}.csv"'})
+
+    def _group(rows):
+        return len(rows), sum(r["face"] for r in rows), sum(r["used"] for r in rows), sum(r["left"] for r in rows)
+
+    def _n(n, word="cheque"):
+        return f"{n} {word}{'' if n == 1 else 's'}"
+
+    # Used / Left only mean something for a cheque that can still be drawn on.
+    LIVE = {"Not used", "Part used", "Fully used"}
+    out = []
+    now_ist = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%d %b %Y %I:%M %p IST")
+    out.append("CHEQUE USAGE REPORT — read-only, nothing was changed")
+    out.append(f"Generated {now_ist}. Same cheques as Cheque Management (deleted cheques and rejected collections left out).")
+    out.append("Used = face value − Left. Left = what Material Pay & Settle and Labour Release offer for the cheque.")
+    out.append("")
+    out.append("SUMMARY")
+    inc = [r for r in report if r["c"].get("cheque_type") == "incoming"]
+    outg = [r for r in report if r["c"].get("cheque_type") != "incoming"]
+    n, f, _, _ = _group(inc)
+    out.append(f"Incoming cheques: {n}, face {_inr(f)}")
+    for label, pred in [
+        ("Not used — full amount left", lambda r: r["state"] == "Not used"),
+        ("   of which opened by CRE", lambda r: r["state"] == "Not used" and r["c"].get("is_opened")),
+        ("   of which not opened yet", lambda r: r["state"] == "Not used" and not r["c"].get("is_opened")),
+        ("Part used", lambda r: r["state"] == "Part used"),
+        ("Fully used — nothing left", lambda r: r["state"] == "Fully used"),
+        ("Cleared to bank (not drawn on)", lambda r: r["state"] == "Cleared to bank"),
+        ("Bounced", lambda r: r["state"] == "Bounced"),
+        ("Cancelled", lambda r: r["state"] == "Cancelled"),
+        ("Disabled", lambda r: r["state"] == "Disabled"),
+    ]:
+        g = [r for r in inc if pred(r)]
+        n, f, u, l = _group(g)
+        core = label.startswith(("Not used", "Part used", "Fully used"))
+        if not n and not core:
+            continue
+        if core or label.startswith("   "):
+            out.append(f"  {label}: {_n(n)}, face {_inr(f)}, used {_inr(u)}, left {_inr(l)}")
+        else:
+            out.append(f"  {label}: {_n(n)}, face {_inr(f)}")
+    n, f, _, _ = _group(outg)
+    out.append(f"Outgoing cheques (written by us): {n}, face {_inr(f)}")
+    out.append("")
+    out.append("CHEQUE MANAGEMENT TABS vs MONEY LEFT (incoming)")
+    for tab in ["Received", "Awaiting CRE", "Opened", "Issued", "Bounced", "Disabled", "All only"]:
+        g = [r for r in inc if r["tab"] == tab]
+        if not g:
+            continue
+        n, f, u, l = _group(g)
+        live = [r for r in g if r["state"] in LIVE]
+        nothing = [r for r in live if r["left"] <= 0.5]
+        some = [r for r in live if r["left"] > 0.5]
+        other = len(g) - len(live)
+        line = f"  {tab}: {_n(n)}, face {_inr(f)}"
+        if live:
+            line += (f" — {len(some)} with money left ({_inr(sum(r['left'] for r in some))}), "
+                     f"{len(nothing)} with nothing left")
+        if other and live:
+            line += f", {other} bounced / cancelled / disabled / cleared to bank"
+        out.append(line)
+    out.append("")
+
+    checks = {
+        "A": "On the Opened tab but nothing is left on it (all drawn by bills / moved to suspense)",
+        "B": "On the Issued tab but money is still left on it",
+        "C": "Bill draws + suspense credits add up to MORE than the cheque — overdrawn",
+        "D": "A live payment row names this cheque but has no draw record (labour before Nov 10, or paid before draws existed) — Left may be overstated, or the money was spent twice",
+        "E": "Not opened by CRE yet, but bills were already paid from it",
+    }
+    out.append("CHECKS")
+    for k, text in checks.items():
+        g = [r for r in report if k in r["flags"]]
+        out.append(f"[{k}] {text}: {len(g)}")
+        for r in g:
+            c = r["c"]
+            out.append(f"    #{c.get('cheque_number')} {r['date']} {c.get('party_name') or ''} | face {_inr(r['face'])} | "
+                       f"draws {_inr(r['drawn'])} + suspense credits {_inr(r['seeded'])}"
+                       + (f" ({_inr(r['seed_net'])} not already a draw)" if abs(r["seed_net"] - r["seeded"]) > 0.5 else "")
+                       + (f" + rows with no draw {_inr(r['undrawn_amt'])}" if r["undrawn_rows"] else "")
+                       + f" | left {_inr(r['left'])} | tab {r['tab']}"
+                       + (f" | used_for_expense_id {c.get('used_for_expense_id')}" if c.get("used_for_expense_id") else ""))
+            if k in ("C", "D"):
+                for a in sorted(r["allocs"], key=lambda a: str(a.get("created_at") or "")):
+                    out.append(f"        draw   {_day(a.get('created_at'))} {(a.get('request_type') or a.get('source') or '?'):<8} "
+                               f"{_inr(float(a.get('amount') or 0)):>12}  {a.get('vendor_name') or ''}  "
+                               f"exp {a.get('expense_id') or a.get('released_with_expense_id') or '-'}  req {a.get('request_id') or '-'}")
+                for p in sorted(r["rows"], key=lambda p: str(p.get("created_at") or "")):
+                    tag = "NO DRAW" if p in r["undrawn_rows"] else "has draw"
+                    out.append(f"        row    {_day(p.get('created_at'))} {(p.get('category') or '?'):<8} "
+                               f"{_inr(p['_share']):>12}{' (split)' if p.get('_shared') else ''}  "
+                               f"{p.get('contractor_name') or p.get('vendor_name') or ''}  exp {p.get('expense_id')}  "
+                               f"status {p.get('status')}  [{tag}]")
+    out.append("")
+    out.append("FULL LIST (newest cheque date first)")
+    out.append("S.No | Cheque No | Date | Type | Bank | Party | Project | Face | Used | Left | State | Tab | CRE opened | Paid to | Checks")
+    for i, r in enumerate(report, 1):
+        c = r["c"]
+        paid_to = ", ".join(r["paid_to"][:3]) + (f" +{len(r['paid_to']) - 3} more" if len(r["paid_to"]) > 3 else "")
+        out.append(" | ".join([
+            str(i), str(c.get("cheque_number") or ""), r["date"], c.get("cheque_type") or "",
+            c.get("bank_name") or "", c.get("party_name") or "", r["project"],
+            _inr(r["face"]),
+            _inr(r["used"]) if r["state"] in LIVE else "-",
+            _inr(r["left"]) if r["state"] in LIVE else "-",
+            r["state"], r["tab"],
+            "yes" if c.get("is_opened") else "no", paid_to or "-", " ".join(r["flags"]) or "-",
+        ]))
+    return PlainTextResponse("\n".join(out))
+
+
 class ChequeCreate(BaseModel):
     cheque_number: str
     bank_name: str
