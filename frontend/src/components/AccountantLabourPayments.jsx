@@ -114,33 +114,36 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
   ));
   const rabBadges = (r) => (
     <>
-      <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-200 font-mono">{r.rab_number}</Badge>
+      <Badge variant="outline" className="text-[10px] bg-violet-50 text-violet-700 border-violet-200 font-mono whitespace-nowrap">{r.rab_number}</Badge>
       {r.is_multi_stage && (
-        <Badge variant="outline" className="text-[9px] bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 font-semibold uppercase">
+        <Badge variant="outline" className="text-[9px] bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200 font-semibold uppercase whitespace-nowrap">
           {r.stage_breakdown.length}-stage bill
         </Badge>
       )}
     </>
   );
-  // `wrap` lets long stage names run onto more lines on phones instead of truncating.
-  const stageDetail = (r, wrap = false) => (r.is_multi_stage ? (
-    <div className="space-y-0.5">
+  // Nov 11 2026 — one grid per bill (no. | stage | status | amount) so the
+  // badges and amounts line up. Stage names wrap: a `truncate` (nowrap) name
+  // set the table's minimum width, pushed the Release button off the right
+  // edge and squeezed the Contractor / Project columns.
+  const stageDetail = (r) => (r.is_multi_stage ? (
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-start gap-x-2 gap-y-1 text-[11px]">
       {r.stage_breakdown.map((sb, i) => {
         const isReleased = sb.status === 'approved';
         return (
-          <div key={sb.request_id} className={`flex ${wrap ? 'items-start' : 'items-center'} gap-1 text-[11px]`}>
-            <span className="text-[9px] font-bold text-fuchsia-600 bg-fuchsia-50 rounded px-1">{i + 1}</span>
-            <span className={wrap ? 'min-w-0 break-words' : 'truncate'} title={sb.stage_name}>{sb.stage_name}</span>
-            <Badge variant="outline" className={`text-[9px] ml-1 ${isReleased ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+          <div key={sb.request_id} className="contents">
+            <span className="text-[9px] leading-4 font-bold text-fuchsia-600 bg-fuchsia-50 rounded px-1 text-center">{i + 1}</span>
+            <span className="min-w-0 break-words leading-4" title={sb.stage_name}>{sb.stage_name}</span>
+            <Badge variant="outline" className={`text-[9px] leading-3 justify-self-start whitespace-nowrap ${isReleased ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
               {isReleased ? 'Released' : 'Pending'}
             </Badge>
-            <span className={`ml-auto font-semibold whitespace-nowrap ${isReleased ? 'text-gray-400 line-through' : 'text-emerald-700'}`}>{fmt(sb.amount)}</span>
+            <span className={`text-right leading-4 font-semibold whitespace-nowrap ${isReleased ? 'text-gray-400 line-through' : 'text-emerald-700'}`}>{fmt(sb.amount)}</span>
           </div>
         );
       })}
     </div>
   ) : (
-    r.stage_name
+    <span className="break-words">{r.stage_name}</span>
   ));
   const toReleaseNote = (r) => r.is_multi_stage && r.bill_total !== r.pending_amount && r.pending_amount > 0 && (
     <p className="text-[9px] text-amber-600 font-normal italic mt-0.5">
@@ -221,7 +224,7 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
                     {r.rab_number && rabBadges(r)}
                     {statusBadge(r)}
                   </div>
-                  <div className="text-gray-700 break-words">{stageDetail(r, true)}</div>
+                  <div className="text-gray-700 break-words">{stageDetail(r)}</div>
                   <div className="flex items-end justify-between gap-3 pt-0.5">
                     <div className="text-[11px] text-gray-500 space-y-0.5 min-w-0">
                       <p data-testid={`alp-card-received-${r.request_id}`}>
@@ -237,54 +240,67 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
                 </div>
               ))}
             </div>
+            {/* Fixed layout: the narrow columns keep their width and Stage
+                takes the rest, so long stage names wrap instead of widening
+                the table past the card. */}
             <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full min-w-[960px] table-fixed text-xs">
+                <colgroup>
+                  <col className="w-[13%]" />
+                  <col className="w-[13%]" />
+                  <col />
+                  <col className="w-[84px]" />
+                  <col className="w-[108px]" />
+                  <col className="w-[112px]" />
+                  <col className="w-[92px]" />
+                  <col className="w-[136px]" />
+                </colgroup>
                 <thead className="bg-gray-100 border-y">
                   <tr>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Contractor</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Project</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Stage</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Status</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">A/C Received</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600 whitespace-nowrap">A/C Received</th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-600">Amount</th>
                     <th className="text-right px-3 py-2 font-semibold text-amber-700">Suspense</th>
-                    <th className="text-right px-3 py-2 font-semibold text-gray-600 w-28">Action</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-600">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {visibleItems.map(r => (
-                    <tr key={r.request_id} className="hover:bg-green-50/40" data-testid={`alp-row-${r.request_id}`}>
-                      <td className="px-3 py-2">
+                    <tr key={r.request_id} className="align-top hover:bg-green-50/40" data-testid={`alp-row-${r.request_id}`}>
+                      <td className="px-3 py-2.5 break-words">
                         <p className="font-medium text-gray-900">{r.contractor_name}</p>
                         <p className="text-[10px] text-gray-500">{r.contractor_type}</p>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5 break-words">
                         <p>{r.project_name}</p>
                         {r.rab_number && (
-                          <div className="flex items-center gap-1 mt-0.5">
+                          <div className="flex items-center flex-wrap gap-1 mt-1">
                             {rabBadges(r)}
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-gray-700">
+                      <td className="px-3 py-2.5 text-gray-700">
                         {stageDetail(r)}
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5">
                         {statusBadge(r)}
                       </td>
                       <td
-                        className={`px-3 py-2 whitespace-nowrap ${formatAccountsReceived(r.accounts_received_at) ? 'text-gray-700' : 'text-gray-400'}`}
+                        className={`px-3 py-2.5 whitespace-nowrap ${formatAccountsReceived(r.accounts_received_at) ? 'text-gray-700' : 'text-gray-400'}`}
                         title={r.accounts_received_at ? new Date(r.accounts_received_at).toLocaleString('en-IN') : 'Not recorded'}
                         data-testid={`alp-received-${r.request_id}`}
                       >
                         {formatAccountsReceived(r.accounts_received_at) || '—'}
                       </td>
-                      <td className="px-3 py-2 text-right font-bold text-amber-700">
+                      <td className="px-3 py-2.5 text-right font-bold text-amber-700 whitespace-nowrap">
                         {fmt(r.amount)}
                         {toReleaseNote(r)}
                       </td>
-                      <td className="px-3 py-2 text-right font-bold text-amber-600">{fmt(r.suspense_balance)}</td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2.5 text-right font-bold text-amber-600 whitespace-nowrap">{fmt(r.suspense_balance)}</td>
+                      <td className="px-3 py-2.5 text-right">
                         {actionButton(r, `alp-open-${r.request_id}`)}
                         {singleReleaseNote(r)}
                       </td>
