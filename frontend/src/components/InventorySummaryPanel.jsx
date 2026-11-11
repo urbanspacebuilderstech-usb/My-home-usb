@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Package, Search, Info, Loader2, ChevronRight } from 'lucide-react';
@@ -406,7 +407,7 @@ export default function InventorySummaryPanel({ scopeLabel = 'All Projects', onR
               </Select>
               <div className="flex items-center gap-1.5">
                 <Label className="text-xs text-gray-500">Start Date</Label>
-                <input
+                <DateInput bare
                   type="date"
                   value={startDate}
                   max={endDate}
@@ -417,7 +418,7 @@ export default function InventorySummaryPanel({ scopeLabel = 'All Projects', onR
               </div>
               <div className="flex items-center gap-1.5">
                 <Label className="text-xs text-gray-500">End Date</Label>
-                <input
+                <DateInput bare
                   type="date"
                   value={endDate}
                   min={startDate}

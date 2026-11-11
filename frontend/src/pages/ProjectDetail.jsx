@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -5971,7 +5972,7 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-2">
-                                    <input
+                                    <DateInput bare
                                       type="date"
                                       className="border rounded px-2 py-1 text-xs"
                                       value={stage.start_date || ''}
@@ -5998,7 +5999,7 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-2">
-                                    <input
+                                    <DateInput bare
                                       type="date"
                                       className="border rounded px-2 py-1 text-xs"
                                       value={stage.actual_start_date || ''}
@@ -6192,7 +6193,7 @@ export default function ProjectDetail() {
                             {/* Planned Start — entering this with existing Duration auto-computes Planned Finish */}
                             <td className="px-3 py-3 text-center">
                               {isStageEditable(stage) ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={stageEditVal(stage, 'start_date') || ''} onChange={e => {
+                                <DateInput bare type="date" className="border rounded px-2 py-1 text-sm" value={stageEditVal(stage, 'start_date') || ''} onChange={e => {
                                   const v = e.target.value;
                                   const dur = parseInt(stageEditVal(stage, 'duration_days')) || 0;
                                   const currFinish = stageEditVal(stage, 'target_date');
@@ -6240,7 +6241,7 @@ export default function ProjectDetail() {
                             {/* Actual Start */}
                             <td className="px-3 py-3 text-center">
                               {isStageEditable(stage) ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={stageEditVal(stage, 'actual_start_date') || ''} onChange={e => {
+                                <DateInput bare type="date" className="border rounded px-2 py-1 text-sm" value={stageEditVal(stage, 'actual_start_date') || ''} onChange={e => {
                                   const v = e.target.value;
                                   const dur = parseInt(stageEditVal(stage, 'actual_duration_days')) || 0;
                                   const currFinish = stageEditVal(stage, 'actual_finish_date');
@@ -9524,7 +9525,7 @@ export default function ProjectDetail() {
                         <PopoverTrigger asChild>
                           <Button
                             variant="outline"
-                            className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${stockDateFrom ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+                            className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${stockDateFrom ? 'bg-amber-50 border-amber-400 text-amber-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
                             data-testid="material-stock-date-filter-btn"
                           >
                             <CalendarIcon className="h-3.5 w-3.5" />
@@ -9550,7 +9551,7 @@ export default function ProjectDetail() {
                                 { label: 'All Entries', fn: () => { setStockDateFrom(''); setStockDateTo(''); } },
                               ].map(p => (
                                 <button key={p.label} onClick={p.fn}
-                                  className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'Clear' ? 'text-red-500 hover:bg-red-50' : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'}`}
+                                  className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'Clear' ? 'text-red-500 hover:bg-red-50' : 'text-gray-700 hover:bg-amber-50 hover:text-amber-700'}`}
                                   data-testid={`stock-date-preset-${p.label.toLowerCase().replace(/ /g,'-')}`}
                                 >{p.label}</button>
                               ))}
@@ -9575,12 +9576,12 @@ export default function ProjectDetail() {
                                   table: 'w-full border-collapse', head_row: 'flex',
                                   head_cell: 'text-gray-400 rounded-md w-8 font-normal text-[10px] uppercase',
                                   row: 'flex w-full mt-1', cell: 'relative p-0 text-center text-sm',
-                                  day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-blue-50 transition-colors inline-flex items-center justify-center',
-                                  day_selected: 'bg-blue-600 text-white hover:bg-blue-700 font-medium',
-                                  day_today: 'bg-gray-100 font-semibold text-blue-600',
-                                  day_range_middle: 'bg-blue-50 text-blue-700 rounded-none',
-                                  day_range_start: 'bg-blue-600 text-white rounded-l-lg rounded-r-none',
-                                  day_range_end: 'bg-blue-600 text-white rounded-r-lg rounded-l-none',
+                                  day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-amber-50 transition-colors inline-flex items-center justify-center',
+                                  day_selected: 'bg-amber-600 text-white hover:bg-amber-700 font-medium',
+                                  day_today: 'bg-gray-100 font-semibold text-amber-600',
+                                  day_range_middle: 'bg-amber-50 text-amber-700 rounded-none',
+                                  day_range_start: 'bg-amber-600 text-white rounded-l-lg rounded-r-none',
+                                  day_range_end: 'bg-amber-600 text-white rounded-r-lg rounded-l-none',
                                   day_outside: 'text-gray-300',
                                 }}
                               />

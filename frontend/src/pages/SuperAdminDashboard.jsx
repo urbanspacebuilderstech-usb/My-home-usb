@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import axios from 'axios';
 import { Link, useNavigate } from 'react-router-dom';
 import { AppHeader } from '../components/AppHeader';
@@ -559,9 +560,9 @@ export default function SuperAdminDashboard() {
             </div>
             <div className={`inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-1.5 shadow-sm ${preset === 'custom' ? 'border-amber-500' : 'border-gray-200'}`}>
               <Calendar className="h-4 w-4 text-gray-400" />
-              <input type="date" value={range.start} max={range.end} onChange={(e) => applyCustomDate('start', e.target.value)} className="text-sm border-0 p-0 focus:outline-none focus:ring-0 bg-transparent text-gray-700" data-testid="dashboard-custom-start" aria-label="From date" />
+              <DateInput bare type="date" value={range.start} max={range.end} onChange={(e) => applyCustomDate('start', e.target.value)} className="text-sm border-0 p-0 focus:outline-none focus:ring-0 bg-transparent text-gray-700" data-testid="dashboard-custom-start" aria-label="From date" />
               <span className="text-gray-400">–</span>
-              <input type="date" value={range.end} min={range.start} onChange={(e) => applyCustomDate('end', e.target.value)} className="text-sm border-0 p-0 focus:outline-none focus:ring-0 bg-transparent text-gray-700" data-testid="dashboard-custom-end" aria-label="To date" />
+              <DateInput bare type="date" value={range.end} min={range.start} onChange={(e) => applyCustomDate('end', e.target.value)} className="text-sm border-0 p-0 focus:outline-none focus:ring-0 bg-transparent text-gray-700" data-testid="dashboard-custom-end" aria-label="To date" />
             </div>
             <button
               onClick={fetchAll}

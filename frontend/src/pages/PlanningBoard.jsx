@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -2281,7 +2282,7 @@ export default function PlanningBoard({ embedded = false }) {
                                   <td className="px-4 py-2.5 text-center">
                                     {/* Release Date — when set/changed, triggers the existing Request Payment flow
                                         so the stage goes to CRE → Accountant approval automatically. */}
-                                    <input
+                                    <DateInput bare
                                       type="date"
                                       defaultValue={releaseDate}
                                       disabled={isCollected}
@@ -2431,7 +2432,7 @@ export default function PlanningBoard({ embedded = false }) {
                           <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5 min-w-0">
                               <Label className="text-xs text-gray-500">Start Date</Label>
-                              <input
+                              <DateInput bare
                                 type="date"
                                 value={dlrDprStartDate}
                                 max={dlrDprEndDate}
@@ -2442,7 +2443,7 @@ export default function PlanningBoard({ embedded = false }) {
                             </div>
                             <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5 min-w-0">
                               <Label className="text-xs text-gray-500">End Date</Label>
-                              <input
+                              <DateInput bare
                                 type="date"
                                 value={dlrDprEndDate}
                                 min={dlrDprStartDate}

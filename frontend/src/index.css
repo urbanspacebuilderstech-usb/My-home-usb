@@ -390,3 +390,10 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
  * where scrolling can't reach them; `safe` starts it at the left instead.
  * Identical to plain `center` whenever the tabs fit. */
 [role="tablist"].justify-center { justify-content: safe center; }
+
+/* Nov 11 2026 — ERP amber for every react-day-picker calendar: hover, focus
+   ring and default selected colour (rdp's own default is blue). */
+.rdp {
+    --rdp-accent-color: #d97706;
+    --rdp-background-color: #fef3c7;
+}

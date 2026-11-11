@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
@@ -650,7 +651,7 @@ export default function PMDashboard() {
                       <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
                         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5 min-w-0">
                           <Label className="text-xs text-gray-500">Start Date</Label>
-                          <input
+                          <DateInput bare
                             type="date"
                             value={dlrDprStartDate}
                             max={dlrDprEndDate}
@@ -661,7 +662,7 @@ export default function PMDashboard() {
                         </div>
                         <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-1.5 min-w-0">
                           <Label className="text-xs text-gray-500">End Date</Label>
-                          <input
+                          <DateInput bare
                             type="date"
                             value={dlrDprEndDate}
                             min={dlrDprStartDate}
@@ -829,7 +830,7 @@ export default function PMDashboard() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Label className="text-xs text-gray-500">Start Date</Label>
-                        <input
+                        <DateInput bare
                           type="date"
                           value={invSummaryStartDate}
                           max={invSummaryEndDate}
@@ -840,7 +841,7 @@ export default function PMDashboard() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Label className="text-xs text-gray-500">End Date</Label>
-                        <input
+                        <DateInput bare
                           type="date"
                           value={invSummaryEndDate}
                           min={invSummaryStartDate}

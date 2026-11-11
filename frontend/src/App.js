@@ -3,10 +3,8 @@ import { useState, useEffect, useRef, lazy, Suspense, Component } from 'react';
 import axios from 'axios';
 import { Toaster } from '@/components/ui/sonner';
 import '@/App.css';
-// DayPicker base styles. Several date filters (Cashbook, PM, Sr SE, DLR)
-// render <DayPicker> and rely on these rules being global. Keep this import
-// here rather than in one component, or it only loads with that page's chunk.
-import 'react-day-picker/dist/style.css';
+// DayPicker base styles (react-day-picker/dist/style.css) are imported in
+// index.js, BEFORE index.css — see the note there.
 // Side-effect import: applies the persisted theme to <html> before React paints.
 import '@/hooks/useTheme';
 

@@ -1703,7 +1703,7 @@ export default function CRMSales() {
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${dateFilter ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+                className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${dateFilter ? 'bg-amber-50 border-amber-400 text-amber-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
                 data-testid="sales-date-filter-btn"
               >
                 <Calendar className="h-3.5 w-3.5" />
@@ -1729,7 +1729,7 @@ export default function CRMSales() {
                     { label: 'All Leads', fn: () => { setDateFilter(''); setDateFilterEnd(''); } },
                   ].map(p => (
                     <button key={p.label} onClick={p.fn}
-                      className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'All Leads' ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'}`}
+                      className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'All Leads' ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-amber-50 hover:text-amber-700'}`}
                     >{p.label}</button>
                   ))}
                 </div>
@@ -1753,12 +1753,12 @@ export default function CRMSales() {
                       table: 'w-full border-collapse', head_row: 'flex',
                       head_cell: 'text-gray-400 rounded-md w-8 font-normal text-[10px] uppercase',
                       row: 'flex w-full mt-1', cell: 'relative p-0 text-center text-sm',
-                      day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-blue-50 transition-colors inline-flex items-center justify-center',
-                      day_selected: 'bg-blue-600 text-white hover:bg-blue-700 font-medium',
-                      day_today: 'bg-gray-100 font-semibold text-blue-600',
-                      day_range_middle: 'bg-blue-50 text-blue-700 rounded-none',
-                      day_range_start: 'bg-blue-600 text-white rounded-l-lg rounded-r-none',
-                      day_range_end: 'bg-blue-600 text-white rounded-r-lg rounded-l-none',
+                      day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-amber-50 transition-colors inline-flex items-center justify-center',
+                      day_selected: 'bg-amber-600 text-white hover:bg-amber-700 font-medium',
+                      day_today: 'bg-gray-100 font-semibold text-amber-600',
+                      day_range_middle: 'bg-amber-50 text-amber-700 rounded-none',
+                      day_range_start: 'bg-amber-600 text-white rounded-l-lg rounded-r-none',
+                      day_range_end: 'bg-amber-600 text-white rounded-r-lg rounded-l-none',
                       day_outside: 'text-gray-300',
                     }}
                   />

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import axios from 'axios';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -188,7 +189,7 @@ export default function SalesBoard() {
           </div>
           <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-full pl-3 pr-1.5 py-1">
             <span className="text-[10px] text-gray-400 uppercase font-semibold">Custom</span>
-            <input
+            <DateInput bare
               type="date"
               value={range.start}
               max={range.end}
@@ -197,7 +198,7 @@ export default function SalesBoard() {
               data-testid="sales-masterview-custom-start"
             />
             <span className="text-gray-300">→</span>
-            <input
+            <DateInput bare
               type="date"
               value={range.end}
               min={range.start}

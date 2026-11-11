@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -1398,7 +1399,7 @@ export default function SiteEngineerDashboard() {
                       <div className="grid grid-cols-2 gap-2">
                         <div className="flex flex-col gap-1">
                           <Label className="text-[11px] text-gray-500">Start Date</Label>
-                          <input
+                          <DateInput bare
                             type="date"
                             value={dlrDprStartDate}
                             max={dlrDprEndDate}
@@ -1409,7 +1410,7 @@ export default function SiteEngineerDashboard() {
                         </div>
                         <div className="flex flex-col gap-1">
                           <Label className="text-[11px] text-gray-500">End Date</Label>
-                          <input
+                          <DateInput bare
                             type="date"
                             value={dlrDprEndDate}
                             min={dlrDprStartDate}
@@ -1587,7 +1588,7 @@ export default function SiteEngineerDashboard() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Label className="text-xs text-gray-500">Start Date</Label>
-                        <input
+                        <DateInput bare
                           type="date"
                           value={invSummaryStartDate}
                           max={invSummaryEndDate}
@@ -1598,7 +1599,7 @@ export default function SiteEngineerDashboard() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Label className="text-xs text-gray-500">End Date</Label>
-                        <input
+                        <DateInput bare
                           type="date"
                           value={invSummaryEndDate}
                           min={invSummaryStartDate}
@@ -2539,8 +2540,8 @@ export default function SiteEngineerDashboard() {
                     options={projects.map(p => ({ id: p.project_id, name: p.name }))}
                     testId="exp-filter-project"
                   />
-                  <input type="date" className="h-8 text-xs border rounded px-2" value={expenseFilterFrom} onChange={e => { setExpenseFilterFrom(e.target.value); fetchDirectExpenses(expenseFilterProject, e.target.value, expenseFilterTo); }} placeholder="From" data-testid="exp-filter-from" />
-                  <input type="date" className="h-8 text-xs border rounded px-2" value={expenseFilterTo} onChange={e => { setExpenseFilterTo(e.target.value); fetchDirectExpenses(expenseFilterProject, expenseFilterFrom, e.target.value); }} placeholder="To" data-testid="exp-filter-to" />
+                  <DateInput bare type="date" className="h-8 text-xs border rounded px-2" value={expenseFilterFrom} onChange={e => { setExpenseFilterFrom(e.target.value); fetchDirectExpenses(expenseFilterProject, e.target.value, expenseFilterTo); }} placeholder="From" data-testid="exp-filter-from" />
+                  <DateInput bare type="date" className="h-8 text-xs border rounded px-2" value={expenseFilterTo} onChange={e => { setExpenseFilterTo(e.target.value); fetchDirectExpenses(expenseFilterProject, expenseFilterFrom, e.target.value); }} placeholder="To" data-testid="exp-filter-to" />
                 </div>
                 {directExpensesList.length === 0 ? (
                   <div className="text-center py-8 text-gray-400"><Receipt className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No expense records</p></div>

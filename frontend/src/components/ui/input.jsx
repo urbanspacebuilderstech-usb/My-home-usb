@@ -1,8 +1,17 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { DateInput } from "@/components/ui/date-input"
+
+// Nov 11 2026 — date / month / date-time fields render the ERP's amber
+// calendar (DateInput) instead of the browser's blue popup. Same props,
+// same "YYYY-MM-DD" values, so call sites don't change.
+const CALENDAR_TYPES = new Set(["date", "month", "datetime-local"])
 
 const Input = React.forwardRef(({ className, type, ...props }, ref) => {
+  if (CALENDAR_TYPES.has(type)) {
+    return <DateInput ref={ref} type={type} className={className} {...props} />
+  }
   return (
     <input
       type={type}

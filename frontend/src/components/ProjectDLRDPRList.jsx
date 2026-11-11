@@ -1,5 +1,6 @@
 // Overall DLR & DPR submissions for a project (read-only list shown in SE DLR & DPR tab)
 import { useState, useEffect } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import axios from 'axios';
 import { toast } from 'sonner';
 import {
@@ -136,7 +137,7 @@ const ProjectDLRDPRList = ({ projectId }) => {
                 <div className="flex items-end gap-2 mb-3" data-testid="dlr-custom-range">
                   <div className="flex-1">
                     <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Start Date</label>
-                    <input
+                    <DateInput bare
                       type="date"
                       value={dateFrom}
                       max={dateTo || undefined}
@@ -148,7 +149,7 @@ const ProjectDLRDPRList = ({ projectId }) => {
                   <span className="text-gray-400 text-xs pb-1.5">→</span>
                   <div className="flex-1">
                     <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">End Date</label>
-                    <input
+                    <DateInput bare
                       type="date"
                       value={dateTo}
                       min={dateFrom || undefined}

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { DateInput } from '@/components/ui/date-input';
 import { Calendar, ChevronDown, X } from 'lucide-react';
 import { Button } from './ui/button';
 
@@ -132,14 +133,14 @@ export default function MetaDateFilter({ value, onChange, defaultPreset = 'last_
           <div className="border-t pt-2">
             <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-400 mb-1">Custom range</p>
             <div className="grid grid-cols-2 gap-1.5">
-              <input
+              <DateInput bare
                 type="date"
                 value={customFrom}
                 onChange={(e) => setCustomFrom(e.target.value)}
                 className="px-2 py-1 text-xs border rounded"
                 data-testid="meta-date-custom-from"
               />
-              <input
+              <DateInput bare
                 type="date"
                 value={customTo}
                 onChange={(e) => setCustomTo(e.target.value)}
