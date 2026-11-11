@@ -40,6 +40,9 @@ const STATUS_CONFIG = {
   rejected: { label: 'Rejected', color: 'bg-red-100 text-red-800 border-red-300', icon: XCircle, step: -1 }
 };
 
+// Delivery photos the SE attaches on Receive Material (lorry = legacy single photo).
+const DELIVERY_PHOTO_KEYS = ['vehicle_front_image_id', 'vehicle_side_image_id', 'material_image_id', 'dp_copy_image_id', 'lorry_image_id'];
+
 const URGENCY_OPTIONS = ['low', 'medium', 'high', 'critical'];
 const STAGE_OPTIONS = ['Foundation', 'Superstructure', 'Finishing', 'Plumbing', 'Electrical', 'Painting', 'Flooring', 'Roofing'];
 
@@ -252,6 +255,22 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
       setResubmitNote('');
     }
   }, [order]);
+
+  // Nov 11 2026 — upload time of each delivery photo (server time of the
+  // file record, keyed by file_id), shown under the photo the same way the
+  // Receive Material dialog shows it while uploading.
+  const [photoTimes, setPhotoTimes] = useState({});
+  const photoIdsKey = DELIVERY_PHOTO_KEYS.map(k => order?.[k] || '').join('|');
+  useEffect(() => {
+    setPhotoTimes(order?.photo_uploaded_at || {});
+    if (!open || !order?.request_id || !photoIdsKey.replace(/\|/g, '')) return undefined;
+    let cancelled = false;
+    axios.get(`${API}/procurement-simple/receipt-proof/${order.request_id}`)
+      .then(res => { if (!cancelled) setPhotoTimes(res.data?.photo_uploaded_at || {}); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, order?.request_id, photoIdsKey]);
 
   if (!order) return null;
 
@@ -728,6 +747,11 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
                         onError={(e) => { e.target.style.display = 'none'; }}
                       />
                       <p className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 bg-emerald-100/60 py-1 px-2">{p.label}</p>
+                      {photoTimes[p.id] && (
+                        <p className="text-[11px] text-emerald-800 bg-emerald-100/60 -mt-1 pb-1 px-2" data-testid="order-photo-uploaded-time">
+                          {formatDate(photoTimes[p.id])}
+                        </p>
+                      )}
                     </a>
                   ) : (
                     <div key={p.key} className="rounded-md border border-dashed border-gray-300 bg-white h-32 sm:h-40 flex items-center justify-center">

@@ -2689,8 +2689,16 @@ async def receipt_proof(request_id: str, user: User = Depends(get_current_user))
     delivery photo's upload time, keyed by file_id. Fetched per request when
     Verify Delivery or the card's photo viewer opens, because the board's rows
     come from two lists (the queue stops at 500; the rest come from
-    /material-requests) and only this way does every request get it."""
-    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON, UserRole.PROJECT_MANAGER]:
+    /material-requests) and only this way does every request get it.
+
+    Nov 11 2026 — also read by the shared material-request popup
+    (OrderDetailDialog) so SE / Sr SE / PM / Planning see each delivery
+    photo's time under the photo, same as in the Receive Material dialog."""
+    if user.role not in [
+        UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON,
+        UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SR_SITE_ENGINEER, UserRole.SITE_ENGINEER,
+        UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+    ]:
         raise HTTPException(status_code=403, detail="Permission denied")
     req = await db.material_requests.find_one(
         {"request_id": request_id}, {"_id": 0, "request_id": 1, **{k: 1 for k in RECEIPT_PHOTO_KEYS}}
