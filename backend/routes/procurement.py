@@ -2693,7 +2693,8 @@ async def receipt_proof(request_id: str, user: User = Depends(get_current_user))
 
     Nov 11 2026 — also read by the shared material-request popup
     (OrderDetailDialog) so SE / Sr SE / PM / Planning see each delivery
-    photo's time under the photo, same as in the Receive Material dialog."""
+    photo's time under the photo, same as in the Receive Material dialog,
+    and the receipt's GPS location as a Google Maps link."""
     if user.role not in [
         UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PLANNING_PERSON,
         UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SR_SITE_ENGINEER, UserRole.SITE_ENGINEER,

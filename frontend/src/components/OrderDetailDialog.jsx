@@ -258,19 +258,28 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
 
   // Nov 11 2026 — upload time of each delivery photo (server time of the
   // file record, keyed by file_id), shown under the photo the same way the
-  // Receive Material dialog shows it while uploading.
+  // Receive Material dialog shows it while uploading, plus the GPS point the
+  // SE captured in that dialog (the receipt's location).
   const [photoTimes, setPhotoTimes] = useState({});
+  const [receiptGps, setReceiptGps] = useState(null);
   const photoIdsKey = DELIVERY_PHOTO_KEYS.map(k => order?.[k] || '').join('|');
   useEffect(() => {
+    const gpsOf = (src) => (src?.receipt_gps_latitude != null && src?.receipt_gps_longitude != null
+      ? { lat: Number(src.receipt_gps_latitude), lng: Number(src.receipt_gps_longitude) } : null);
     setPhotoTimes(order?.photo_uploaded_at || {});
-    if (!open || !order?.request_id || !photoIdsKey.replace(/\|/g, '')) return undefined;
+    setReceiptGps(gpsOf(order));
+    if (!open || !order?.request_id || !(photoIdsKey.replace(/\|/g, '') || order?.received_at)) return undefined;
     let cancelled = false;
     axios.get(`${API}/procurement-simple/receipt-proof/${order.request_id}`)
-      .then(res => { if (!cancelled) setPhotoTimes(res.data?.photo_uploaded_at || {}); })
+      .then(res => {
+        if (cancelled) return;
+        setPhotoTimes(res.data?.photo_uploaded_at || {});
+        setReceiptGps(gpsOf(res.data));
+      })
       .catch(() => {});
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, order?.request_id, photoIdsKey]);
+  }, [open, order?.request_id, photoIdsKey, order?.received_at]);
 
   if (!order) return null;
 
@@ -760,7 +769,7 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
                   )
                 ))}
               </div>
-              {(order.received_quantity || order.received_at || order.received_by_name) && (
+              {(order.received_quantity || order.received_at || order.received_by_name || receiptGps) && (
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                   {order.received_quantity != null && (
                     <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received Qty</p><p className="font-medium">{order.received_quantity} {order.unit || ''}</p></div>
@@ -770,6 +779,23 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate, onRe
                   )}
                   {order.received_by_name && (
                     <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received By</p><p className="font-medium">{order.received_by_name}</p></div>
+                  )}
+                  {receiptGps && (
+                    <div className="col-span-2 sm:col-span-3 min-w-0" data-testid="order-receipt-location">
+                      <p className="text-[10px] uppercase font-semibold text-gray-500">Received Location</p>
+                      <p className="flex items-center gap-x-1.5 gap-y-0.5 flex-wrap">
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${receiptGps.lat},${receiptGps.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-medium text-blue-700 underline hover:text-blue-900"
+                          data-testid="order-receipt-location-link"
+                        >
+                          <MapPin className="h-3.5 w-3.5 shrink-0" />Open in Google Maps
+                        </a>
+                        <span className="text-gray-500">({receiptGps.lat.toFixed(6)}, {receiptGps.lng.toFixed(6)})</span>
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
