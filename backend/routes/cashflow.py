@@ -73,6 +73,27 @@ def _classify_expense_pool(category: Optional[str]) -> str:
     return "direct"  # safe default — project-tied expenses tend to be direct
 
 
+def expense_cashflow_pool(exp: Dict[str, Any]) -> str:
+    """'direct' | 'indirect' for one cashbook expense row.
+
+    Mar 04 2026 — Indirect-cost mirrors are stored with category="other" (so
+    they show under Cashbook > Expense > Other) but are INDIRECT; they are
+    recognised by expense_type / source. Everything else goes by category,
+    then expense_type. Nov 20 2026 — shared by /recompute and the Cashbook
+    Expense table's Cashflow column so both say the same thing.
+    """
+    if exp.get("expense_type") == "indirect_cost" or exp.get("source") == "indirect_cost":
+        return "indirect"
+    return _classify_expense_pool(exp.get("category") or exp.get("expense_type"))
+
+
+def tag_cashflow_pool(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Stamps `cashflow_pool` on each expense row in place; returns the list."""
+    for r in rows:
+        r["cashflow_pool"] = expense_cashflow_pool(r)
+    return rows
+
+
 async def allocate_income(income_id: str, project_id: Optional[str], amount: float, project_name: str = "", source: str = "income") -> Dict[str, Any]:
     """Idempotent — re-running on the same income_id is a no-op. Used by the income-approval hook."""
     existing = await db.cashflow_ledger.find_one({"source_id": income_id, "kind": "income"}, {"_id": 0})
@@ -673,9 +694,7 @@ async def full_recompute(user: User = Depends(get_current_user)):
             # Other) but their real classification is INDIRECT. Detect via
             # `expense_type` / `source` and force category to `overhead` so
             # `_classify_expense_pool` routes them to the indirect pool.
-            cat = exp.get("category", "")
-            if exp.get("expense_type") == "indirect_cost" or exp.get("source") == "indirect_cost":
-                cat = "overhead"
+            cat = "overhead" if expense_cashflow_pool(exp) == "indirect" else exp.get("category", "")
             await allocate_expense(exp["expense_id"], pid, amt, cat, pname, source="expense_replay")
             expense_count += 1
         except Exception:

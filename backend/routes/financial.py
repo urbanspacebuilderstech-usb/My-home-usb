@@ -19,6 +19,7 @@ from bson import ObjectId
 
 from core.database import db, fs
 from core.fastjson import fast_json
+from routes.cashflow import tag_cashflow_pool
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from security import InputValidator
@@ -1203,7 +1204,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         # so a truncated "entries" array here made the drilldown disagree
         # with the card headline and silently hid older months/categories.
         "income_entries": incomes,
-        "expense_entries": sorted(all_expenses, key=lambda x: x.get("created_at", ""), reverse=True),
+        "expense_entries": tag_cashflow_pool(sorted(all_expenses, key=lambda x: x.get("created_at", ""), reverse=True)),
         "petty_cash": {"issued": petty_total_issued, "spent": petty_total_spent, "balance": petty_total_issued - petty_total_spent},
         "suspense_balance": suspense_total,
         "suspense_breakdown": {
@@ -7341,7 +7342,7 @@ async def get_cashbook_filtered(
         # entries and whole categories were missing from both the drilldown
         # and the by-mode/project-wise totals built from the same list.
         "income_entries": incomes,
-        "expense_entries": all_expenses,
+        "expense_entries": tag_cashflow_pool(all_expenses),
         # Sep 26 2026 - raw petty_cash rows for the Project Wise > Petty Cash
         # summary tiles (Issued / A/C Approved / Spent / Balance). Grouping
         # and filtering stay client-side, as that tab already does.

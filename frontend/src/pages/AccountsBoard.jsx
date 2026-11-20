@@ -317,6 +317,15 @@ function getTransactionId(e, type) {
   return legIds.join(', ');
 }
 
+// Nov 20 2026 — Cashflow column: Direct (material / labour / vendor) or
+// Indirect (salary, office, Indirect Cost entries …), stamped server-side by
+// routes/cashflow.py expense_cashflow_pool — the same rule the Cashflow
+// Engine uses, so it covers every existing and new expense.
+const CASHFLOW_LABELS = { direct: 'Direct', indirect: 'Indirect' };
+function getCashflowLabel(e) {
+  return CASHFLOW_LABELS[e.cashflow_pool] || '';
+}
+
 // Sep 11 2026 — Material Id column: a material expense shows the parent
 // material request's USB-MR number (e.g. "USB-MR1382"); a labour/contractor
 // or vendor bill raised through the RAB workflow shows its RAB number
@@ -518,6 +527,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Transaction Id</th>
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                  {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Cashflow</th>}
                   {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Material Id</th>}
                   {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>}
                   <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
@@ -526,7 +536,7 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
               </thead>
               <tbody className="divide-y">
                 {entries.length === 0 ? (
-                  <tr><td colSpan={type === 'expense' ? 10 : 8} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
+                  <tr><td colSpan={type === 'expense' ? 11 : 8} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
                 ) : pageEntries.map((e, i) => (
                   <tr key={pageStart + i} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-400">{pageStart + i + 1}</td>
@@ -549,6 +559,15 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
                         <ChequeRef e={e} />
                       )}
                     </td>
+                    {type === 'expense' && (
+                      <td className="px-3 py-2" data-testid="drilldown-cashflow">
+                        {getCashflowLabel(e) ? (
+                          <Badge variant="outline" className={`text-[10px] ${e.cashflow_pool === 'indirect' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                            {getCashflowLabel(e)}
+                          </Badge>
+                        ) : '-'}
+                      </td>
+                    )}
                     {type === 'expense' && <td className="px-3 py-2 text-gray-600">{getMaterialId(e) || '-'}</td>}
                     {type === 'expense' && <td className="px-3 py-2 text-gray-600">{e.vendor_name || '-'}</td>}
                     <td className={`px-3 py-2 text-right font-bold ${type === 'income' ? 'text-green-700' : 'text-red-600'}`}>
@@ -711,7 +730,7 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
     // always-empty column).
     const isExpense = String(type).toLowerCase() === 'expense';
     const header = ['S.No', 'Date', 'Description', 'Project', 'Transaction Id', 'Mode',
-                    ...(isExpense ? ['Material Id', 'Vendor'] : []), 'Amount'];
+                    ...(isExpense ? ['Cashflow', 'Material Id', 'Vendor'] : []), 'Amount'];
     const dataLines = rows.map((r, idx) => {
       // Same precedence as the table (payment_date first). The export used to
       // prefer created_at, so a row carrying both could show one date on
@@ -725,7 +744,7 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
       const materialId = getMaterialId(r) || '';
       const vendor = r.vendor_name || '';
       const amt = Number(r.amount || 0);
-      return [idx + 1, d, desc, proj, txn, mode, ...(isExpense ? [materialId, vendor] : []), amt]
+      return [idx + 1, d, desc, proj, txn, mode, ...(isExpense ? [getCashflowLabel(r), materialId, vendor] : []), amt]
         .map(csvEscape).join(',');
     });
     const csv = '\uFEFF' + [header.join(','), ...dataLines].join('\n');
