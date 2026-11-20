@@ -12331,6 +12331,13 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
     # Contractor suspense balance
     suspense_balance = await _get_contractor_suspense_balance(contractor_id) if contractor_id else 0.0
 
+    # Nov 20 2026 — the contractor's bank details, so the accountant can see
+    # where the money goes (same as Vendor A/C No / Bank / IFSC on materials).
+    contractor_bank = (await db.contractors.find_one(
+        {"contractor_id": contractor_id},
+        {"_id": 0, "account_number": 1, "bank_name": 1, "ifsc_code": 1},
+    ) if contractor_id else None) or {}
+
     # Prior RABs for the same WO (all stages) — for context. Exclude
     # siblings of the multi-stage bill we're about to release.
     sibling_request_ids = {s["request_id"] for s in siblings}
@@ -12422,6 +12429,9 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
             "contractor_id": contractor_id,
             "contractor_name": contractor_name,
             "contractor_type": wo.get("contractor_type"),
+            "account_number": contractor_bank.get("account_number") or None,
+            "bank_name": contractor_bank.get("bank_name") or None,
+            "ifsc_code": contractor_bank.get("ifsc_code") or None,
             "total_value": wo.get("total_value", 0),
             "paid_amount": wo.get("paid_amount", 0),
         },

@@ -215,6 +215,16 @@ export default function LabourRABReleaseDialog({ item, onClose, onDone }) {
                   <p className="font-semibold text-blue-700">{fmt(ctx.stage.balance_after_this)}</p>
                 </div>
               </div>
+              {/* Nov 20 2026 — where the money goes, from the contractor master
+                  (same fields as Vendor A/C No / Bank / IFSC on material bills). */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs pt-2 border-t border-amber-200" data-testid="rab-rel-contractor-bank">
+                <div><span className="text-gray-500 text-[11px]">Contractor A/C No</span><p className="font-medium font-mono">{ctx.work_order.account_number || '—'}</p></div>
+                <div><span className="text-gray-500 text-[11px]">Bank</span><p className="font-medium">{ctx.work_order.bank_name || '—'}</p></div>
+                <div><span className="text-gray-500 text-[11px]">IFSC</span><p className="font-medium font-mono">{ctx.work_order.ifsc_code || '—'}</p></div>
+                {!ctx.work_order.account_number && !ctx.work_order.bank_name && !ctx.work_order.ifsc_code && (
+                  <p className="col-span-full text-[11px] text-amber-700">Bank details not added for this contractor yet.</p>
+                )}
+              </div>
               <div className="flex flex-wrap gap-1 pt-1 text-[10px]">
                 {ctx.request.pm_approved_by_name && <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">✓ PM: {ctx.request.pm_approved_by_name}</Badge>}
                 {ctx.request.qc_approved_by_name && <Badge variant="outline" className="bg-cyan-50 text-cyan-700 border-cyan-200">✓ QC: {ctx.request.qc_approved_by_name}</Badge>}
