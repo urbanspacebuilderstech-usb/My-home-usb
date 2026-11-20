@@ -12333,10 +12333,14 @@ async def accountant_labour_rab_pay_context(request_id: str, work_order_id: str,
 
     # Nov 20 2026 — the contractor's bank details, so the accountant can see
     # where the money goes (same as Vendor A/C No / Bank / IFSC on materials).
-    contractor_bank = (await db.contractors.find_one(
-        {"contractor_id": contractor_id},
-        {"_id": 0, "account_number": 1, "bank_name": 1, "ifsc_code": 1},
-    ) if contractor_id else None) or {}
+    # Work orders point at labour_contractors (Planning → Labour Contractors);
+    # the older contractors collection is only a fallback.
+    _bank_fields = {"_id": 0, "account_number": 1, "bank_name": 1, "ifsc_code": 1}
+    contractor_bank = {}
+    if contractor_id:
+        contractor_bank = (await db.labour_contractors.find_one({"contractor_id": contractor_id}, _bank_fields)
+                           or await db.contractors.find_one({"contractor_id": contractor_id}, _bank_fields)
+                           or {})
 
     # Prior RABs for the same WO (all stages) — for context. Exclude
     # siblings of the multi-stage bill we're about to release.
