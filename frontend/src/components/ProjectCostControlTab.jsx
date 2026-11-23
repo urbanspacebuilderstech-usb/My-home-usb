@@ -37,8 +37,10 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
   const [search, setSearch] = useState('');
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [split, setSplit] = useState({ direct_pct: 85, indirect_pct: 15 });
-  const [dialog, setDialog] = useState(null); // { direct, indirect, busy }
+  // { direct_pct, indirect_pct, projects: { [project_id]: { direct_pct, indirect_pct } } }
+  const [split, setSplit] = useState({ direct_pct: 85, indirect_pct: 15, projects: {} });
+  // { project: null | row, direct, indirect, resetProjects, busy } — project null = all projects
+  const [dialog, setDialog] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +62,15 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
 
   const dPct = Number(split.direct_pct) || 0;
   const iPct = Number(split.indirect_pct) || 0;
+  const projectSplits = split.projects || {};
+  const customCount = Object.keys(projectSplits).length;
+  // A project's own split wins over the all-projects split.
+  const splitFor = (pid) => {
+    const own = projectSplits[pid];
+    return own
+      ? { d: Number(own.direct_pct) || 0, i: Number(own.indirect_pct) || 0, own: true }
+      : { d: dPct, i: iPct, own: false };
+  };
 
   const rows = useMemo(() => {
     const norm = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -70,17 +81,19 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
       .map((p) => {
         const area = areaOf(p);
         const gt = Number(p.grand_total || 0);
-        const dIn = gt * dPct / 100;
-        const iIn = gt * iPct / 100;
+        const sp = splitFor(p.project_id);
+        const dIn = gt * sp.d / 100;
+        const iIn = gt * sp.i / 100;
         const dOut = Number(p.direct_expense || 0);
         const iOut = Number(p.indirect_expense || 0);
         return {
-          ...p, area, gt, rate: area ? gt / area : null,
+          ...p, area, gt, rate: area ? gt / area : null, sp,
           dIn, dOut, dBal: dIn - dOut, iIn, iOut, iBal: iIn - iOut,
           net: (dIn - dOut) + (iIn - iOut),
         };
       });
-  }, [projects, search, allowedProjectIds, dPct, iPct]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, search, allowedProjectIds, dPct, iPct, projectSplits]);
 
   const sum = (k) => rows.reduce((s, r) => s + (r[k] || 0), 0);
   const withArea = rows.filter((r) => r.area);
@@ -95,7 +108,8 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
   };
   const balCls = (v) => (v < 0 ? 'text-red-600' : 'text-emerald-700');
 
-  const openSplit = () => setDialog({ direct: String(dPct), indirect: String(iPct), busy: false });
+  const openSplit = () => setDialog({ project: null, direct: String(dPct), indirect: String(iPct), resetProjects: false, busy: false });
+  const openProjectSplit = (r) => setDialog({ project: r, direct: String(r.sp.d), indirect: String(r.sp.i), busy: false });
   const setDirect = (v) => {
     const n = parseFloat(v);
     setDialog((d) => ({ ...d, direct: v, indirect: Number.isFinite(n) && n >= 0 && n <= 100 ? String(Math.round((100 - n) * 100) / 100) : d.indirect }));
@@ -108,17 +122,32 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
   const dlgI = parseFloat(dialog?.indirect);
   const dlgValid = dialog && Number.isFinite(dlgD) && Number.isFinite(dlgI) && dlgD >= 0 && dlgI >= 0 && Math.abs(dlgD + dlgI - 100) <= 0.01;
 
-  const saveSplit = async () => {
+  const runSplit = async (request, okMsg) => {
     setDialog((d) => ({ ...d, busy: true }));
     try {
-      const r = await axios.patch(`${API}/accountant/project-cost-control/split`, { direct_pct: dlgD, indirect_pct: dlgI });
-      setSplit(r.data);
+      const r = await request();
+      setSplit({ projects: {}, ...r.data });
       setDialog(null);
-      toast.success(`Split saved: ${pctFmt(r.data.direct_pct)}% / ${pctFmt(r.data.indirect_pct)}%`);
+      toast.success(okMsg);
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not save the split');
       setDialog((d) => d && ({ ...d, busy: false }));
     }
+  };
+  const saveSplit = () => {
+    const body = { direct_pct: dlgD, indirect_pct: dlgI };
+    if (dialog.project) {
+      const pid = dialog.project.project_id;
+      return runSplit(() => axios.put(`${API}/accountant/project-cost-control/split/projects/${pid}`, body),
+        `${dialog.project.project_name}: ${pctFmt(dlgD)}% / ${pctFmt(dlgI)}%`);
+    }
+    return runSplit(() => axios.patch(`${API}/accountant/project-cost-control/split`, { ...body, reset_projects: !!dialog.resetProjects }),
+      `All projects: ${pctFmt(dlgD)}% / ${pctFmt(dlgI)}%`);
+  };
+  const clearProjectSplit = () => {
+    const pid = dialog.project.project_id;
+    return runSplit(() => axios.delete(`${API}/accountant/project-cost-control/split/projects/${pid}`),
+      `${dialog.project.project_name} uses the all-projects split again`);
   };
 
   const th = 'px-2 py-1.5 font-medium';
@@ -136,7 +165,8 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
               <Percent className="h-4 w-4" />Split Percentage
             </Button>
             <span className="text-sm text-gray-600">
-              Direct <b className="text-gray-900">{pctFmt(dPct)}%</b> · Indirect <b className="text-gray-900">{pctFmt(iPct)}%</b> of Grand Total
+              All projects: Direct <b className="text-gray-900">{pctFmt(dPct)}%</b> · Indirect <b className="text-gray-900">{pctFmt(iPct)}%</b> of Grand Total
+              {customCount > 0 && <span className="ml-2 text-violet-700">· {customCount} project{customCount > 1 ? 's' : ''} with own split</span>}
             </span>
           </div>
           <div className="relative w-full sm:w-80">
@@ -191,7 +221,17 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
                         )}
                       </td>
                       <td className={`${td} font-bold text-emerald-700`} data-testid="pcc-rate">{r.rate != null ? money2.format(r.rate) : '—'}</td>
-                      <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{pctFmt(dPct)} / {pctFmt(iPct)}</td>
+                      <td className="px-2 py-2 text-center whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => openProjectSplit(r)}
+                          title={r.sp.own ? 'This project has its own split. Click to change.' : 'Uses the all-projects split. Click to set this project\'s own split.'}
+                          className={`px-1.5 py-0.5 rounded border text-[11px] hover:border-violet-400 ${r.sp.own ? 'bg-violet-100 border-violet-300 text-violet-800 font-semibold' : 'border-dashed border-gray-300 text-gray-600'}`}
+                          data-testid="pcc-row-split"
+                        >
+                          {pctFmt(r.sp.d)} / {pctFmt(r.sp.i)}
+                        </button>
+                      </td>
                       <td className={`${td} bg-emerald-50/30 border-l border-emerald-100`}><Money v={r.dIn} /></td>
                       <td className={`${td} bg-emerald-50/30`}><Money v={r.dOut} cls="text-red-600" /></td>
                       <td className={`${td} bg-emerald-50/30 font-semibold`}><Money v={r.dBal} cls={balCls(r.dBal)} /></td>
@@ -210,7 +250,7 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
                     <td className={td}><Money v={sum('gt')} cls="text-violet-700" exact /></td>
                     <td className={td}>{totalArea ? areaFmt.format(totalArea) : '—'}</td>
                     <td className={`${td} text-emerald-700`} title="Average over projects that have a Build Up Area">{avgRate != null ? money2.format(avgRate) : '—'}</td>
-                    <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{pctFmt(dPct)} / {pctFmt(iPct)}</td>
+                    <td className="px-2 py-2 text-center text-gray-400">—</td>
                     <td className={`${td} border-l border-emerald-100`}><Money v={sum('dIn')} /></td>
                     <td className={td}><Money v={sum('dOut')} cls="text-red-600" /></td>
                     <td className={td}><Money v={sum('dBal')} cls={balCls(sum('dBal'))} /></td>
@@ -229,10 +269,15 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
       <Dialog open={!!dialog} onOpenChange={(o) => !o && setDialog(null)}>
         <DialogContent className="sm:max-w-md" data-testid="pcc-split-dialog">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Percent className="h-5 w-5 text-violet-600" />Split Percentage</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Percent className="h-5 w-5 text-violet-600" />
+              {dialog?.project ? `Split — ${dialog.project.project_name}` : 'Split Percentage — All Projects'}
+            </DialogTitle>
             <DialogDescription>
-              How each project's Grand Total is split into a Direct and an Indirect budget on this page.
-              This is separate from the Cashflow Engine split.
+              {dialog?.project
+                ? `This project's own Direct / Indirect split of its Grand Total. All projects use ${pctFmt(dPct)} / ${pctFmt(iPct)}.`
+                : "How every project's Grand Total is split into a Direct and an Indirect budget, unless the project has its own split."}
+              {' '}Separate from the Cashflow Engine split.
             </DialogDescription>
           </DialogHeader>
           {dialog && (
@@ -248,14 +293,34 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
                 </div>
               </div>
               {!dlgValid && <p className="text-xs text-red-600">Direct % + Indirect % must add up to 100.</p>}
-              {split.updated_at && (
-                <p className="text-[11px] text-gray-500">
-                  Last changed {new Date(split.updated_at).toLocaleString('en-IN')}{split.updated_by_name ? ` by ${split.updated_by_name}` : ''}
-                </p>
+              {!dialog.project && customCount > 0 && (
+                <label className="flex items-start gap-2 text-xs text-gray-700 bg-violet-50 border border-violet-200 rounded p-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={!!dialog.resetProjects}
+                    onChange={(e) => setDialog((d) => ({ ...d, resetProjects: e.target.checked }))}
+                    data-testid="pcc-reset-projects"
+                  />
+                  <span>Also apply to the {customCount} project{customCount > 1 ? 's' : ''} that {customCount > 1 ? 'have' : 'has'} their own split (removes their own split).</span>
+                </label>
               )}
+              {(() => {
+                const meta = dialog.project ? projectSplits[dialog.project.project_id] : split;
+                return meta?.updated_at ? (
+                  <p className="text-[11px] text-gray-500">
+                    Last changed {new Date(meta.updated_at).toLocaleString('en-IN')}{meta.updated_by_name ? ` by ${meta.updated_by_name}` : ''}
+                  </p>
+                ) : null;
+              })()}
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-2">
+            {dialog?.project?.sp?.own && (
+              <Button variant="outline" onClick={clearProjectSplit} disabled={dialog?.busy} className="sm:mr-auto border-amber-300 text-amber-700 hover:bg-amber-50" data-testid="pcc-clear-project-split">
+                Use all-projects split
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
             <Button onClick={saveSplit} disabled={!dlgValid || dialog?.busy} className="bg-violet-600 hover:bg-violet-700" data-testid="pcc-split-save">
               <Save className="h-4 w-4 mr-1" />Save
