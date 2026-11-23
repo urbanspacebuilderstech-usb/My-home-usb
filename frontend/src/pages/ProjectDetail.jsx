@@ -1280,6 +1280,8 @@ export default function ProjectDetail() {
   const [vendorCategories, setVendorCategories] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [materialSubTab, setMaterialSubTab] = useState('materials');
+  const [theoQtyType, setTheoQtyType] = useState('material');
+  const [theoQtyMatType, setTheoQtyMatType] = useState('civil');
   const [ordersStatusFilter, setOrdersStatusFilter] = useState(null);
   const [stockDateFrom, setStockDateFrom] = useState('');
   const [stockDateTo, setStockDateTo] = useState('');
@@ -9067,13 +9069,14 @@ export default function ProjectDetail() {
 
                 {/* Sub-tabs */}
                 <Tabs value={materialSubTab} onValueChange={setMaterialSubTab}>
-                  <TabsList className="grid grid-cols-6 w-full">
+                  <TabsList className="grid grid-cols-7 w-full">
                     <TabsTrigger value="materials" data-testid="subtab-materials">Materials</TabsTrigger>
                     <TabsTrigger value="vendors" data-testid="subtab-vendors">Vendors</TabsTrigger>
                     <TabsTrigger value="orders" data-testid="subtab-orders">Orders</TabsTrigger>
                     <TabsTrigger value="payments" data-testid="subtab-payments">Payments</TabsTrigger>
                     <TabsTrigger value="inventory" data-testid="subtab-inventory">Inventory</TabsTrigger>
                     <TabsTrigger value="material_stock" data-testid="subtab-material-stock">Material Stock</TabsTrigger>
+                    <TabsTrigger value="theoretical_qty" data-testid="subtab-theoretical-qty">Theoretical Quantity</TabsTrigger>
                   </TabsList>
 
                   {/* MATERIALS SUB-TAB */}
@@ -9631,6 +9634,33 @@ export default function ProjectDetail() {
                       </div>
                       );
                     })()}
+                  </TabsContent>
+
+                  {/* THEORETICAL QUANTITY SUB-TAB — Material (Civil Work | Finishing Items) | Labour */}
+                  <TabsContent value="theoretical_qty" className="mt-4">
+                    <Tabs value={theoQtyType} onValueChange={setTheoQtyType}>
+                      <TabsList className="grid grid-cols-2 w-full max-w-md">
+                        <TabsTrigger value="material" data-testid="theo-qty-material">Material</TabsTrigger>
+                        <TabsTrigger value="labour" data-testid="theo-qty-labour">Labour</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="material" className="mt-4">
+                        <Tabs value={theoQtyMatType} onValueChange={setTheoQtyMatType}>
+                          <TabsList className="grid grid-cols-2 w-full max-w-md">
+                            <TabsTrigger value="civil" data-testid="theo-qty-civil">Civil Work</TabsTrigger>
+                            <TabsTrigger value="finishing" data-testid="theo-qty-finishing">Finishing Items</TabsTrigger>
+                          </TabsList>
+                          <TabsContent value="civil" className="mt-4">
+                            <div className="border rounded-lg p-8 text-center text-sm text-gray-500" data-testid="theo-qty-civil-empty">Civil Work theoretical quantities — no items yet.</div>
+                          </TabsContent>
+                          <TabsContent value="finishing" className="mt-4">
+                            <div className="border rounded-lg p-8 text-center text-sm text-gray-500" data-testid="theo-qty-finishing-empty">Finishing Items theoretical quantities — no items yet.</div>
+                          </TabsContent>
+                        </Tabs>
+                      </TabsContent>
+                      <TabsContent value="labour" className="mt-4">
+                        <div className="border rounded-lg p-8 text-center text-sm text-gray-500" data-testid="theo-qty-labour-empty">Labour theoretical quantities — no items yet.</div>
+                      </TabsContent>
+                    </Tabs>
                   </TabsContent>
                 </Tabs>
 
