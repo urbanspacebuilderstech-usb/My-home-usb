@@ -6709,12 +6709,11 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
   // Nov 23 2026 — Grand Total ÷ Build Up Area per project. Grand Total does
   // not depend on the date range, so the shared filters are not shown.
   if (pwSubTab === 'cost_control') {
-    // Role filter only; the tab has its own project search.
-    const costProjects = allowedProjectIds ? projectsRaw.filter(p => allowedProjectIds.has(p.project_id)) : projectsRaw;
+    // The tab loads its own all-time figures; only the role filter is passed.
     return (
       <div className="space-y-4" data-testid="project-summary-tab">
         {pwSubTabBar}
-        <ProjectCostControlTab projects={costProjects} loading={fLoading} Amount={MaskedValue} />
+        <ProjectCostControlTab allowedProjectIds={allowedProjectIds} Amount={MaskedValue} />
       </div>
     );
   }

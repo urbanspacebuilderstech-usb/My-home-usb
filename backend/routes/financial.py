@@ -19,7 +19,7 @@ from bson import ObjectId
 
 from core.database import db, fs
 from core.fastjson import fast_json
-from routes.cashflow import tag_cashflow_pool
+from routes.cashflow import expense_cashflow_pool, tag_cashflow_pool
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from security import InputValidator
@@ -7190,6 +7190,9 @@ async def get_cashbook_filtered(
         "expense": 0,
         "cf_income": 0,
         "cf_expense": 0,
+        "direct_expense": 0,
+        "indirect_expense": 0,
+        "cf_indirect_expense": 0,
         # Nov 23 2026 - Project Wise > Project Cost Control (Grand Total / SQ.FT).
         "buildup_area": p.get("buildup_area"),
     } for p in projects_list}
@@ -7201,6 +7204,10 @@ async def get_cashbook_filtered(
         pid = e.get("project_id")
         if pid in real_pid_set:
             project_wise_map[pid]["expense"] += e.get("amount", 0) or 0
+            # Nov 23 2026 - Project Cost Control: Direct / Indirect Out, by the
+            # same rule as Cashbook > Expense > Cashflow.
+            _pool_key = "indirect_expense" if expense_cashflow_pool(e) == "indirect" else "direct_expense"
+            project_wise_map[pid][_pool_key] += e.get("amount", 0) or 0
     # Feb 20 2026 — Add Carry Forward income / expense to each project row so
     # Project Wise totals match the Carry Forward tab. CF Income comes from
     # `income_carry_forward + income_adjustment`; CF Expense rolls up the 4
@@ -7216,6 +7223,9 @@ async def get_cashbook_filtered(
         cf_exp = carry_forward_expense(cf)
         project_wise_map[pid]["cf_income"] = cf_inc
         project_wise_map[pid]["cf_expense"] = cf_exp
+        # Only the indirect bucket of a carry-forward is overhead; material /
+        # labour / petty cash (and the legacy rolled-up figure) are direct.
+        project_wise_map[pid]["cf_indirect_expense"] = min(cf_exp, float(cf.get("indirect_carry_forward") or 0))
     # Carry-forward is a lump-sum opening balance, not tied to any date, so it
     # only belongs in the all-time view — folding it into a date-filtered
     # view (e.g. one month) would inflate each row's income/expense by the
@@ -7227,6 +7237,10 @@ async def get_cashbook_filtered(
         if not _date_filtered:
             pw["income"] = pw["income"] + pw["cf_income"]
             pw["expense"] = pw["expense"] + pw["cf_expense"]
+            pw["indirect_expense"] += pw["cf_indirect_expense"]
+            pw["direct_expense"] += pw["cf_expense"] - pw["cf_indirect_expense"]
+        pw["direct_expense"] = round(pw["direct_expense"], 2)
+        pw["indirect_expense"] = round(pw["indirect_expense"], 2)
         # Aug 25 2026 — Round to paise. The project page's Financial
         # Performance card rounds the identical sum the same way
         # (expense_engine.compute_project_expense_total), so the two screens
