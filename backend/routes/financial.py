@@ -6960,7 +6960,8 @@ async def get_cashbook_filtered(
                 "planning_status": {"$in": ["new", "active", "delivered"]},
                 "name": {"$nin": ["Swathi 60LG+2", "Swathi 60L G+2", "Swathi 60LG +2", "Mr. Joseph Vijay", "Mr. Joseph Vijay ", "Mr Joseph Vijay", "Mr Joseph Vijay ", "RE - Mr. Joseph Vijay", "RE - Mr. Joseph Vijay ", "RE-Mr. Joseph Vijay", "Mani Demo Project - Onbording", "Mani Demo Project - Onbording ", "Mani Demo Project - Onboarding"]},
             },
-            {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "planning_status": 1, "created_at": 1},
+            {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "status": 1, "planning_status": 1, "created_at": 1,
+             "buildup_area": 1},
         ).sort("name", 1).to_list(5000),
         # Sep 26 2026 - Project Wise > Petty Cash needs the petty_cash
         # records themselves, not just the recorded_expenses legs. The legs
@@ -7189,6 +7190,8 @@ async def get_cashbook_filtered(
         "expense": 0,
         "cf_income": 0,
         "cf_expense": 0,
+        # Nov 23 2026 - Project Wise > Project Cost Control (Grand Total / SQ.FT).
+        "buildup_area": p.get("buildup_area"),
     } for p in projects_list}
     for i in incomes:
         pid = i.get("project_id")
