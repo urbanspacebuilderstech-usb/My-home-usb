@@ -23,6 +23,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // Cashflow Engine's.
 
 const money2 = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money0 = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 const areaFmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 });
 const pctFmt = (n) => Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
@@ -86,9 +87,12 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
   const totalArea = withArea.reduce((s, r) => s + r.area, 0);
   const avgRate = totalArea ? withArea.reduce((s, r) => s + r.gt, 0) / totalArea : null;
 
-  const Money = ({ v, cls = '' }) => (
-    Amount ? <Amount value={Math.round(v * 100) / 100} className={cls} /> : <span className={cls}>{money2.format(v)}</span>
-  );
+  // In / Out / Bal / Net are budgets, shown in whole rupees so the 13
+  // columns fit; Grand Total keeps paise (`exact`).
+  const Money = ({ v, cls = '', exact = false }) => {
+    const val = exact ? Math.round(v * 100) / 100 : Math.round(v);
+    return Amount ? <Amount value={val} className={cls} /> : <span className={cls}>{exact ? money2.format(val) : money0.format(val)}</span>;
+  };
   const balCls = (v) => (v < 0 ? 'text-red-600' : 'text-emerald-700');
 
   const openSplit = () => setDialog({ direct: String(dPct), indirect: String(iPct), busy: false });
@@ -117,8 +121,11 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
     }
   };
 
-  const th = 'px-3 py-2 font-medium whitespace-nowrap';
-  const td = 'px-3 py-2 text-right whitespace-nowrap';
+  const th = 'px-2 py-1.5 font-medium';
+  const td = 'px-2 py-2 text-right whitespace-nowrap';
+  // S.No + Project stay put while the money columns scroll on narrow screens.
+  const stickyNo = 'sticky left-0 z-10 bg-inherit';
+  const stickyProj = 'sticky left-8 z-10 bg-inherit';
 
   return (
     <div className="space-y-4" data-testid="project-cost-control-tab">
@@ -142,22 +149,26 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm" data-testid="pcc-table">
+            <table className="w-full text-xs" data-testid="pcc-table">
               <thead className="bg-gray-50 border-b">
-                <tr className="text-xs uppercase text-gray-500">
-                  <th className={`${th} text-left`}>S.No</th>
-                  <th className={`${th} text-left`}>Project</th>
-                  <th className={`${th} text-right`}>Grand Total</th>
-                  <th className={`${th} text-right`}>Build Up Area (SQ.FT)</th>
-                  <th className={`${th} text-right`}>Per SQ.FT</th>
-                  <th className={`${th} text-center`}>Split</th>
-                  <th className={`${th} text-right bg-emerald-50/60`}>Direct In</th>
-                  <th className={`${th} text-right bg-emerald-50/60`}>Direct Out</th>
-                  <th className={`${th} text-right bg-emerald-50/60`}>Direct Bal</th>
-                  <th className={`${th} text-right bg-violet-50/60`}>Indirect In</th>
-                  <th className={`${th} text-right bg-violet-50/60`}>Indirect Out</th>
-                  <th className={`${th} text-right bg-violet-50/60`}>Indirect Bal</th>
-                  <th className={`${th} text-right`}>Net</th>
+                <tr className="text-[11px] uppercase text-gray-500 bg-gray-50">
+                  <th rowSpan={2} className={`${th} ${stickyNo} w-8 text-left align-bottom`}>S.No</th>
+                  <th rowSpan={2} className={`${th} ${stickyProj} text-left align-bottom`}>Project</th>
+                  <th rowSpan={2} className={`${th} text-right align-bottom`}>Grand<br />Total</th>
+                  <th rowSpan={2} className={`${th} text-right align-bottom`}>Build Up Area<br />(SQ.FT)</th>
+                  <th rowSpan={2} className={`${th} text-right align-bottom`}>Per<br />SQ.FT</th>
+                  <th rowSpan={2} className={`${th} text-center align-bottom`}>Split</th>
+                  <th colSpan={3} className={`${th} text-center bg-emerald-50 text-emerald-700 border-l border-emerald-100`}>Direct</th>
+                  <th colSpan={3} className={`${th} text-center bg-violet-50 text-violet-700 border-l border-violet-100`}>Indirect</th>
+                  <th rowSpan={2} className={`${th} text-right align-bottom border-l`}>Net</th>
+                </tr>
+                <tr className="text-[11px] uppercase text-gray-500 bg-gray-50">
+                  <th className={`${th} text-right bg-emerald-50/60 border-l border-emerald-100`}>In</th>
+                  <th className={`${th} text-right bg-emerald-50/60`}>Out</th>
+                  <th className={`${th} text-right bg-emerald-50/60`}>Bal</th>
+                  <th className={`${th} text-right bg-violet-50/60 border-l border-violet-100`}>In</th>
+                  <th className={`${th} text-right bg-violet-50/60`}>Out</th>
+                  <th className={`${th} text-right bg-violet-50/60`}>Bal</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -168,45 +179,45 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
                 ) : rows.map((r, i) => {
                   const open = () => r.project_id && navigate(`/projects/${r.project_id}`);
                   return (
-                    <tr key={r.project_id || i} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
+                    <tr key={r.project_id || i} className="bg-white hover:bg-gray-50">
+                      <td className={`px-2 py-2 text-gray-400 ${stickyNo}`}>{i + 1}</td>
+                      <td className={`px-2 py-2 whitespace-nowrap ${stickyProj}`}>
                         <button type="button" onClick={open} className="text-blue-700 hover:underline text-left font-medium">{r.project_name || '-'}</button>
                       </td>
-                      <td className={`${td} font-semibold`}><Money v={r.gt} cls="text-violet-700" /></td>
+                      <td className={`${td} font-semibold`}><Money v={r.gt} cls="text-violet-700" exact /></td>
                       <td className={td}>
                         {r.area ? areaFmt.format(r.area) : (
                           <button type="button" onClick={open} className="text-xs text-amber-600 hover:underline">Set area</button>
                         )}
                       </td>
                       <td className={`${td} font-bold text-emerald-700`} data-testid="pcc-rate">{r.rate != null ? money2.format(r.rate) : '—'}</td>
-                      <td className="px-3 py-2 text-center text-xs text-gray-600 whitespace-nowrap">{pctFmt(dPct)} / {pctFmt(iPct)}</td>
-                      <td className={`${td} bg-emerald-50/30`}><Money v={r.dIn} /></td>
+                      <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{pctFmt(dPct)} / {pctFmt(iPct)}</td>
+                      <td className={`${td} bg-emerald-50/30 border-l border-emerald-100`}><Money v={r.dIn} /></td>
                       <td className={`${td} bg-emerald-50/30`}><Money v={r.dOut} cls="text-red-600" /></td>
                       <td className={`${td} bg-emerald-50/30 font-semibold`}><Money v={r.dBal} cls={balCls(r.dBal)} /></td>
-                      <td className={`${td} bg-violet-50/30`}><Money v={r.iIn} /></td>
+                      <td className={`${td} bg-violet-50/30 border-l border-violet-100`}><Money v={r.iIn} /></td>
                       <td className={`${td} bg-violet-50/30`}><Money v={r.iOut} cls="text-red-600" /></td>
                       <td className={`${td} bg-violet-50/30 font-semibold`}><Money v={r.iBal} cls={balCls(r.iBal)} /></td>
-                      <td className={`${td} font-bold`} data-testid="pcc-net"><Money v={r.net} cls={balCls(r.net)} /></td>
+                      <td className={`${td} font-bold border-l`} data-testid="pcc-net"><Money v={r.net} cls={balCls(r.net)} /></td>
                     </tr>
                   );
                 })}
               </tbody>
               {!loading && rows.length > 0 && (
-                <tfoot className="bg-gray-50 border-t font-semibold">
-                  <tr>
-                    <td className="px-3 py-2 whitespace-nowrap" colSpan={2}>Total ({rows.length} projects)</td>
-                    <td className={td}><Money v={sum('gt')} cls="text-violet-700" /></td>
+                <tfoot className="border-t font-semibold">
+                  <tr className="bg-gray-50">
+                    <td className={`px-2 py-2 whitespace-nowrap ${stickyNo}`} colSpan={2}>Total ({rows.length})</td>
+                    <td className={td}><Money v={sum('gt')} cls="text-violet-700" exact /></td>
                     <td className={td}>{totalArea ? areaFmt.format(totalArea) : '—'}</td>
                     <td className={`${td} text-emerald-700`} title="Average over projects that have a Build Up Area">{avgRate != null ? money2.format(avgRate) : '—'}</td>
-                    <td className="px-3 py-2 text-center text-xs text-gray-600">{pctFmt(dPct)} / {pctFmt(iPct)}</td>
-                    <td className={td}><Money v={sum('dIn')} /></td>
+                    <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{pctFmt(dPct)} / {pctFmt(iPct)}</td>
+                    <td className={`${td} border-l border-emerald-100`}><Money v={sum('dIn')} /></td>
                     <td className={td}><Money v={sum('dOut')} cls="text-red-600" /></td>
                     <td className={td}><Money v={sum('dBal')} cls={balCls(sum('dBal'))} /></td>
-                    <td className={td}><Money v={sum('iIn')} /></td>
+                    <td className={`${td} border-l border-violet-100`}><Money v={sum('iIn')} /></td>
                     <td className={td}><Money v={sum('iOut')} cls="text-red-600" /></td>
                     <td className={td}><Money v={sum('iBal')} cls={balCls(sum('iBal'))} /></td>
-                    <td className={td}><Money v={sum('net')} cls={balCls(sum('net'))} /></td>
+                    <td className={`${td} border-l`}><Money v={sum('net')} cls={balCls(sum('net'))} /></td>
                   </tr>
                 </tfoot>
               )}
