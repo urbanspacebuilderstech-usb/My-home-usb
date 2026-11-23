@@ -19,6 +19,7 @@ import MaterialSearchSelect from '../components/MaterialSearchSelect';
 import InventorySummaryPanel from '../components/InventorySummaryPanel';
 import ProjectWiseBalanceTab from '../components/ProjectWiseBalanceTab';
 import ProjectCostControlTab from '../components/ProjectCostControlTab';
+import MaterialCCTab from '../components/MaterialCCTab';
 import EntryTimelineDialog from '../components/EntryTimelineDialog';
 import PayApprovalDialog from '../components/PayApprovalDialog';
 import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
@@ -6563,6 +6564,7 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
         { k: 'petty_cash', label: 'Petty Cash' },
         { k: 'balance', label: 'Balance' },
         { k: 'cost_control', label: 'Project Cost Control' },
+        { k: 'material_cc', label: 'Material CC' },
       ].map(t => (
         <button
           key={t.k}
@@ -6718,6 +6720,15 @@ function ProjectSummaryTab({ overview, userRole, onRefresh }) {
       <div className="space-y-4" data-testid="project-summary-tab">
         {pwSubTabBar}
         <ProjectCostControlTab allowedProjectIds={allowedProjectIds} Amount={MaskedValue} />
+      </div>
+    );
+  }
+  // Nov 23 2026 — all-time Direct Expenses per project.
+  if (pwSubTab === 'material_cc') {
+    return (
+      <div className="space-y-4" data-testid="project-summary-tab">
+        {pwSubTabBar}
+        <MaterialCCTab allowedProjectIds={allowedProjectIds} Amount={MaskedValue} />
       </div>
     );
   }
