@@ -637,7 +637,9 @@ function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = fal
 function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack, canDelete, onDeleteIncome, onDeleteExpense }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [dateRange, setDateRange] = useState(null); // { from, to }
-  const [materialFilter, setMaterialFilter] = useState('');
+  // Nov 23 2026 — multi-select: several materials (e.g. "8mm steel" + "Steel")
+  // can be ticked together; [] = all materials.
+  const [materialFilter, setMaterialFilter] = useState([]);
   const [vendorFilter, setVendorFilter] = useState('');
   const [modeFilter, setModeFilter] = useState('');
 
@@ -714,7 +716,7 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
   }, [projectDateFilteredExpense]);
 
   const filteredExpense = projectDateFilteredExpense
-    .filter(e => !materialFilter || (e.material_name || e.description || '').trim().toLowerCase() === materialFilter.toLowerCase())
+    .filter(e => materialFilter.length === 0 || materialFilter.some(m => m.toLowerCase() === (e.material_name || e.description || '').trim().toLowerCase()))
     .filter(e => !vendorFilter || (e.vendor_name || '').trim().toLowerCase() === vendorFilter.toLowerCase());
 
   // ---- CSV export (opens in Excel) ----
@@ -784,9 +786,10 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
           placeholder="Search Material"
           width="w-60"
           testId="mode-drilldown-material"
+          multiple
         />
-        {materialFilter && (
-          <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setMaterialFilter('')} data-testid="mode-drilldown-material-clear">
+        {materialFilter.length > 0 && (
+          <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setMaterialFilter([])} data-testid="mode-drilldown-material-clear">
             <X className="h-3 w-3 mr-1" /> Clear
           </Button>
         )}
@@ -887,7 +890,7 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
 function CategoryDrilldownView({ label, entries, type, onBack, canDelete, onDelete }) {
   const [projectFilter, setProjectFilter] = useState('');
   const [dateRange, setDateRange] = useState(null); // { from, to }
-  const [materialFilter, setMaterialFilter] = useState('');
+  const [materialFilter, setMaterialFilter] = useState([]); // multi-select; [] = all
   const [modeFilter, setModeFilter] = useState('');
 
   const projects = React.useMemo(() => {
@@ -939,8 +942,8 @@ function CategoryDrilldownView({ label, entries, type, onBack, canDelete, onDele
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [projectDateModeFiltered, type]);
 
-  const filteredEntries = (type === 'expense' && materialFilter)
-    ? projectDateModeFiltered.filter(e => (e.material_name || e.description || '').trim().toLowerCase() === materialFilter.toLowerCase())
+  const filteredEntries = (type === 'expense' && materialFilter.length > 0)
+    ? projectDateModeFiltered.filter(e => materialFilter.some(m => m.toLowerCase() === (e.material_name || e.description || '').trim().toLowerCase()))
     : projectDateModeFiltered;
 
   return (
@@ -964,9 +967,10 @@ function CategoryDrilldownView({ label, entries, type, onBack, canDelete, onDele
               placeholder="Search Material"
               width="w-60"
               testId="category-drilldown-material"
+              multiple
             />
-            {materialFilter && (
-              <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setMaterialFilter('')} data-testid="category-drilldown-material-clear">
+            {materialFilter.length > 0 && (
+              <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setMaterialFilter([])} data-testid="category-drilldown-material-clear">
                 <X className="h-3 w-3 mr-1" /> Clear
               </Button>
             )}
