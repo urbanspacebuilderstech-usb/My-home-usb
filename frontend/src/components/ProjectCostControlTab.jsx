@@ -151,9 +151,8 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
   };
 
   const th = 'px-2 py-1.5 font-medium';
-  const td = 'px-2 py-2 text-right whitespace-nowrap';
-  // Direct / Indirect In · Out · Bal sit centred under their group heading.
-  const tdc = 'px-2 py-2 text-center whitespace-nowrap';
+  // Every column is centred except Project (left), so the row reads evenly.
+  const td = 'px-2 py-2 text-center whitespace-nowrap';
   // S.No + Project stay put while the money columns scroll on narrow screens.
   const stickyNo = 'sticky left-0 z-10 bg-inherit';
   const stickyProj = 'sticky left-8 z-10 bg-inherit';
@@ -184,15 +183,15 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
             <table className="w-full text-xs" data-testid="pcc-table">
               <thead className="bg-gray-50 border-b">
                 <tr className="text-[11px] uppercase text-gray-500 bg-gray-50">
-                  <th rowSpan={2} className={`${th} ${stickyNo} w-8 text-left align-bottom`}>S.No</th>
+                  <th rowSpan={2} className={`${th} ${stickyNo} w-8 text-center align-bottom`}>S.No</th>
                   <th rowSpan={2} className={`${th} ${stickyProj} text-left align-bottom`}>Project</th>
-                  <th rowSpan={2} className={`${th} text-right align-bottom`}>Grand<br />Total</th>
-                  <th rowSpan={2} className={`${th} text-right align-bottom`}>Build Up Area<br />(SQ.FT)</th>
-                  <th rowSpan={2} className={`${th} text-right align-bottom`}>Per<br />SQ.FT</th>
+                  <th rowSpan={2} className={`${th} text-center align-bottom`}>Grand<br />Total</th>
+                  <th rowSpan={2} className={`${th} text-center align-bottom`}>Build Up Area<br />(SQ.FT)</th>
+                  <th rowSpan={2} className={`${th} text-center align-bottom`}>Per<br />SQ.FT</th>
                   <th rowSpan={2} className={`${th} text-center align-bottom`}>Split</th>
                   <th colSpan={3} className={`${th} text-center bg-emerald-50 text-emerald-700 border-l border-emerald-100`}>Direct</th>
                   <th colSpan={3} className={`${th} text-center bg-violet-50 text-violet-700 border-l border-violet-100`}>Indirect</th>
-                  <th rowSpan={2} className={`${th} text-right align-bottom border-l`}>Net</th>
+                  <th rowSpan={2} className={`${th} text-center align-bottom border-l`}>Net</th>
                 </tr>
                 <tr className="text-[11px] uppercase text-gray-500 bg-gray-50">
                   <th className={`${th} text-center bg-emerald-50/60 border-l border-emerald-100`}>In</th>
@@ -212,7 +211,7 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
                   const open = () => r.project_id && navigate(`/projects/${r.project_id}`);
                   return (
                     <tr key={r.project_id || i} className="bg-white hover:bg-gray-50">
-                      <td className={`px-2 py-2 text-gray-400 ${stickyNo}`}>{i + 1}</td>
+                      <td className={`px-2 py-2 text-center text-gray-400 ${stickyNo}`}>{i + 1}</td>
                       <td className={`px-2 py-2 whitespace-nowrap ${stickyProj}`}>
                         <button type="button" onClick={open} className="text-blue-700 hover:underline text-left font-medium">{r.project_name || '-'}</button>
                       </td>
@@ -234,12 +233,12 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
                           {pctFmt(r.sp.d)} / {pctFmt(r.sp.i)}
                         </button>
                       </td>
-                      <td className={`${tdc} bg-emerald-50/30 border-l border-emerald-100`}><Money v={r.dIn} /></td>
-                      <td className={`${tdc} bg-emerald-50/30`}><Money v={r.dOut} cls="text-red-600" /></td>
-                      <td className={`${tdc} bg-emerald-50/30 font-semibold`}><Money v={r.dBal} cls={balCls(r.dBal)} /></td>
-                      <td className={`${tdc} bg-violet-50/30 border-l border-violet-100`}><Money v={r.iIn} /></td>
-                      <td className={`${tdc} bg-violet-50/30`}><Money v={r.iOut} cls="text-red-600" /></td>
-                      <td className={`${tdc} bg-violet-50/30 font-semibold`}><Money v={r.iBal} cls={balCls(r.iBal)} /></td>
+                      <td className={`${td} bg-emerald-50/30 border-l border-emerald-100`}><Money v={r.dIn} /></td>
+                      <td className={`${td} bg-emerald-50/30`}><Money v={r.dOut} cls="text-red-600" /></td>
+                      <td className={`${td} bg-emerald-50/30 font-semibold`}><Money v={r.dBal} cls={balCls(r.dBal)} /></td>
+                      <td className={`${td} bg-violet-50/30 border-l border-violet-100`}><Money v={r.iIn} /></td>
+                      <td className={`${td} bg-violet-50/30`}><Money v={r.iOut} cls="text-red-600" /></td>
+                      <td className={`${td} bg-violet-50/30 font-semibold`}><Money v={r.iBal} cls={balCls(r.iBal)} /></td>
                       <td className={`${td} font-bold border-l`} data-testid="pcc-net"><Money v={r.net} cls={balCls(r.net)} /></td>
                     </tr>
                   );
@@ -253,12 +252,12 @@ export default function ProjectCostControlTab({ allowedProjectIds = null, Amount
                     <td className={td}>{totalArea ? areaFmt.format(totalArea) : '—'}</td>
                     <td className={`${td} text-emerald-700`} title="Average over projects that have a Build Up Area">{avgRate != null ? money2.format(avgRate) : '—'}</td>
                     <td className="px-2 py-2 text-center text-gray-400">—</td>
-                    <td className={`${tdc} border-l border-emerald-100`}><Money v={sum('dIn')} /></td>
-                    <td className={tdc}><Money v={sum('dOut')} cls="text-red-600" /></td>
-                    <td className={tdc}><Money v={sum('dBal')} cls={balCls(sum('dBal'))} /></td>
-                    <td className={`${tdc} border-l border-violet-100`}><Money v={sum('iIn')} /></td>
-                    <td className={tdc}><Money v={sum('iOut')} cls="text-red-600" /></td>
-                    <td className={tdc}><Money v={sum('iBal')} cls={balCls(sum('iBal'))} /></td>
+                    <td className={`${td} border-l border-emerald-100`}><Money v={sum('dIn')} /></td>
+                    <td className={td}><Money v={sum('dOut')} cls="text-red-600" /></td>
+                    <td className={td}><Money v={sum('dBal')} cls={balCls(sum('dBal'))} /></td>
+                    <td className={`${td} border-l border-violet-100`}><Money v={sum('iIn')} /></td>
+                    <td className={td}><Money v={sum('iOut')} cls="text-red-600" /></td>
+                    <td className={td}><Money v={sum('iBal')} cls={balCls(sum('iBal'))} /></td>
                     <td className={`${td} border-l`}><Money v={sum('net')} cls={balCls(sum('net'))} /></td>
                   </tr>
                 </tfoot>
