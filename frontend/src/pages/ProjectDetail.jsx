@@ -77,6 +77,7 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import ChequeListView from '../components/ChequeListView';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
+import LabourTheoreticalQty from '../components/LabourTheoreticalQty';
 import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
 import DLRPanel from '../components/DLRPanel';
 import ProjectAttendanceDLR from '../components/ProjectAttendanceDLR';
@@ -9686,7 +9687,7 @@ export default function ProjectDetail() {
                         </Tabs>
                       </TabsContent>
                       <TabsContent value="labour" className="mt-4">
-                        <div className="border rounded-lg p-8 text-center text-sm text-gray-500" data-testid="theo-qty-labour-empty">Labour theoretical quantities — no items yet.</div>
+                        <LabourTheoreticalQty projectId={projectId} />
                       </TabsContent>
                     </Tabs>
                   </TabsContent>

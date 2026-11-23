@@ -98,6 +98,7 @@ from routes.crm import router as crm_router
 from routes.files import router as files_router
 from routes.branding import router as branding_router
 from routes.project_cost_control import router as project_cost_control_router
+from routes.material_cc import router as material_cc_router
 from routes.architect import router as architect_router
 from routes.contractors import router as contractors_router
 from routes.hr import router as hr_router
@@ -123,6 +124,7 @@ app.include_router(crm_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
 app.include_router(branding_router, prefix="/api")
 app.include_router(project_cost_control_router, prefix="/api")
+app.include_router(material_cc_router, prefix="/api")
 app.include_router(architect_router, prefix="/api")
 app.include_router(contractors_router, prefix="/api")
 app.include_router(hr_router, prefix="/api")
