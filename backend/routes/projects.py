@@ -2829,6 +2829,10 @@ class PackageMaterialEntry(BaseModel):
     brand: Optional[str] = ""
     unit: Optional[str] = ""
     price: Optional[float] = 0
+    # Nov 2026 — Theoretical Quantity: work type ("civil" | "finishing") and
+    # the planned quantity for the project.
+    work_type: Optional[str] = ""
+    theoretical_qty: Optional[float] = None
 
 class PackageMaterialsPayload(BaseModel):
     materials: List[PackageMaterialEntry]
@@ -2846,7 +2850,11 @@ async def save_project_package_materials(project_id: str, payload: PackageMateri
     """Save/update project's package materials list"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING, UserRole.PLANNING_PERSON]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    mats = [{"name": m.name, "brand": m.brand or "", "unit": m.unit or "", "price": float(m.price or 0)} for m in payload.materials]
+    mats = [{
+        "name": m.name, "brand": m.brand or "", "unit": m.unit or "", "price": float(m.price or 0),
+        "work_type": (m.work_type or "") if (m.work_type or "") in ("civil", "finishing") else "",
+        "theoretical_qty": float(m.theoretical_qty) if m.theoretical_qty is not None else None,
+    } for m in payload.materials]
     await db.projects.update_one({"project_id": project_id}, {"$set": {"package_materials": mats}})
     return {"message": "Materials saved", "count": len(mats)}
 
