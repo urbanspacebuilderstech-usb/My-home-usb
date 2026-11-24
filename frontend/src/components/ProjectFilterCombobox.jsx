@@ -17,6 +17,8 @@
  *   options           Array<{ id, name, ...anything }>
  *   allLabel          string  — label for the "All" entry (default: 'All Projects')
  *   placeholder       string  — placeholder text before a project is chosen
+ *   noun              string  — what is being picked, for the search box and
+ *                               the empty text (default: 'project')
  *   className         string  — extra Tailwind classes on the outer wrapper
  *   testId            string  — root data-testid; child ids derive from it
  *   disabled          bool
@@ -30,6 +32,7 @@ export default function ProjectFilterCombobox({
   options = [],
   allLabel = 'All Projects',
   placeholder = 'All Projects',
+  noun = 'project',
   className = '',
   testId = 'project-filter',
   disabled = false,
@@ -82,7 +85,7 @@ export default function ProjectFilterCombobox({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search project…"
+              placeholder={`Search ${noun}…`}
               autoFocus
               className="flex-1 bg-transparent outline-none text-xs placeholder:text-gray-400"
               data-testid={`${testId}-search`}
@@ -99,7 +102,7 @@ export default function ProjectFilterCombobox({
               <span className="flex-1 truncate">{allLabel}</span>
             </button>
             {filtered.length === 0 ? (
-              <p className="text-center text-xs text-gray-400 py-4">No projects match</p>
+              <p className="text-center text-xs text-gray-400 py-4">No {noun}s match</p>
             ) : filtered.map(p => (
               <button
                 key={p.id}

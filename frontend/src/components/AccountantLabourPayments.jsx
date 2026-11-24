@@ -18,9 +18,15 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
+// The queue shows contractors by name, and one contractor can sit in both
+// db.contractors and db.labour_contractors under different ids, so the vendor
+// filter goes by name: picking a vendor lists every row showing that name.
+const vendorKey = (it) => (it.contractor_name || '').trim().toLowerCase();
+
 // `pendingOnly` hides the Released / All tabs (Accounts > Approvals > Labour Work Order).
 export default function AccountantLabourPayments({ pendingOnly = false }) {
   const [tab, setTab] = useState('pending');
+  const [vendorFilter, setVendorFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -83,28 +89,45 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
 
   useEffect(() => { fetchItems(); /* eslint-disable-next-line */ }, [tab]);
 
-  // Unique project list from the current fetch, for the project filter dropdown.
+  // Nov 24 2026 — vendor + project filters. Each dropdown lists only what
+  // exists under the other one, so every pick has rows.
+  const vendorItems = useMemo(
+    () => (vendorFilter === 'all' ? items : items.filter(it => vendorKey(it) === vendorFilter)),
+    [items, vendorFilter],
+  );
+  const projectItems = useMemo(
+    () => (projectFilter === 'all' ? items : items.filter(it => it.project_id === projectFilter)),
+    [items, projectFilter],
+  );
+  const visibleItems = useMemo(
+    () => (projectFilter === 'all' ? vendorItems : vendorItems.filter(it => it.project_id === projectFilter)),
+    [vendorItems, projectFilter],
+  );
+
+  const vendorOptions = useMemo(() => {
+    const seen = new Map();
+    for (const it of projectItems) {
+      const key = vendorKey(it);
+      if (key && !seen.has(key)) seen.set(key, it.contractor_name.trim());
+    }
+    return Array.from(seen.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [projectItems]);
   const projectOptions = useMemo(() => {
     const seen = new Map();
-    for (const it of items) {
+    for (const it of vendorItems) {
       if (it.project_id && !seen.has(it.project_id)) {
         seen.set(it.project_id, it.project_name || '—');
       }
     }
     return Array.from(seen.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [items]);
+  }, [vendorItems]);
 
-  // Reset project filter if the selected project disappears after a tab change.
+  // Drop a filter whose rows are gone after a release or a tab change: the
+  // vendor if they have none left, else the project if the vendor has none there.
   useEffect(() => {
-    if (projectFilter !== 'all' && !projectOptions.some(p => p.id === projectFilter)) {
-      setProjectFilter('all');
-    }
-  }, [projectOptions, projectFilter]);
-
-  const visibleItems = useMemo(() => {
-    if (projectFilter === 'all') return items;
-    return items.filter(it => it.project_id === projectFilter);
-  }, [items, projectFilter]);
+    if (vendorFilter !== 'all' && vendorItems.length === 0) setVendorFilter('all');
+    else if (projectFilter !== 'all' && visibleItems.length === 0) setProjectFilter('all');
+  }, [vendorFilter, projectFilter, vendorItems, visibleItems]);
 
   // Shared by the desktop table and the phone cards.
   const statusBadge = (r) => (r.status === 'approved' ? (
@@ -181,12 +204,21 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
           </button>
           </>}
         </div>
-        <div className="pb-1.5 min-w-[180px]">
+        <div className="pb-1.5 min-w-[180px] flex flex-wrap items-center gap-2">
+          <ProjectFilterCombobox
+            value={vendorFilter}
+            onChange={setVendorFilter}
+            options={vendorOptions}
+            allLabel={`All Vendors (${projectItems.length})`}
+            placeholder="All Vendors"
+            noun="vendor"
+            testId="alp-vendor-filter"
+          />
           <ProjectFilterCombobox
             value={projectFilter}
             onChange={setProjectFilter}
             options={projectOptions}
-            allLabel={`All Projects (${items.length})`}
+            allLabel={`All Projects (${vendorItems.length})`}
             testId="alp-project-filter"
           />
         </div>
@@ -201,7 +233,7 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
         </CardHeader>
         <CardContent className="p-0">
           {loading ? <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
-          : visibleItems.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No {tab === 'pending' ? 'pending' : tab === 'released' ? 'released' : ''} payments{projectFilter !== 'all' ? ' for this project' : ''}</p>
+          : visibleItems.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No {tab === 'pending' ? 'pending' : tab === 'released' ? 'released' : ''} payments</p>
           : (
             <>
             {/* Nov 3 2026 — phones and tablets get one card per bill; the
