@@ -328,6 +328,32 @@ function getCashflowLabel(e) {
   return CASHFLOW_LABELS[e.cashflow_pool] || '';
 }
 
+// Nov 24 2026 — Cashflow filter (All / Direct / Indirect) for the expense
+// drilldowns; '' = all. Lock Closing Balance rows have no cashflow pool, so
+// they only show under All.
+function CashflowFilterSelect({ value, onChange, testId }) {
+  return (
+    <>
+      <Select value={value || 'all'} onValueChange={(v) => onChange(v === 'all' ? '' : v)}>
+        <SelectTrigger className="h-9 w-40 text-xs" data-testid={testId}>
+          <SelectValue placeholder="All Cashflow" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Cashflow</SelectItem>
+          {Object.entries(CASHFLOW_LABELS).map(([k, lbl]) => (
+            <SelectItem key={k} value={k}>{lbl}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {value && (
+        <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => onChange('')} data-testid={`${testId}-clear`}>
+          <X className="h-3 w-3 mr-1" /> Clear
+        </Button>
+      )}
+    </>
+  );
+}
+
 // Sep 11 2026 — Material Id column: a material expense shows the parent
 // material request's USB-MR number (e.g. "USB-MR1382"); a labour/contractor
 // or vendor bill raised through the RAB workflow shows its RAB number
@@ -643,6 +669,8 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
   const [materialFilter, setMaterialFilter] = useState([]);
   const [vendorFilter, setVendorFilter] = useState('');
   const [modeFilter, setModeFilter] = useState('');
+  const [cashflowFilter, setCashflowFilter] = useState(''); // expense only; '' = all
+  const [activeTab, setActiveTab] = useState('income');
 
   // Build unique project list from all entries in this bucket
   const projects = React.useMemo(() => {
@@ -674,7 +702,9 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
     return true;
   };
   const filteredIncome = incomeEntries.filter(matchesFilters);
-  const projectDateFilteredExpense = expenseEntries.filter(matchesFilters);
+  const projectDateFilteredExpense = expenseEntries
+    .filter(matchesFilters)
+    .filter(e => !cashflowFilter || e.cashflow_pool === cashflowFilter);
 
   // Materials available under the current project/date filters — grouped so
   // each dropdown row shows qty/unit + entry count + total spend, letting the
@@ -835,9 +865,12 @@ function ModeDrilldownView({ label, mode, incomeEntries, expenseEntries, onBack,
             )}
           </>
         )}
+        {activeTab === 'expense' && (
+          <CashflowFilterSelect value={cashflowFilter} onChange={setCashflowFilter} testId="mode-drilldown-cashflow-filter" />
+        )}
         <Badge variant="outline" className="text-xs">{label}</Badge>
       </div>
-      <Tabs defaultValue="income">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-2 w-full mb-3">
           <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1">
             <ArrowDownRight className="h-3.5 w-3.5" /> Income ({filteredIncome.length})
@@ -893,6 +926,7 @@ function CategoryDrilldownView({ label, entries, type, onBack, canDelete, onDele
   const [dateRange, setDateRange] = useState(null); // { from, to }
   const [materialFilter, setMaterialFilter] = useState([]); // multi-select; [] = all
   const [modeFilter, setModeFilter] = useState('');
+  const [cashflowFilter, setCashflowFilter] = useState(''); // expense only; '' = all
 
   const projects = React.useMemo(() => {
     const map = new Map();
@@ -919,6 +953,7 @@ function CategoryDrilldownView({ label, entries, type, onBack, canDelete, onDele
     if (modeFilter) {
       if (classifyMode(e.payment_mode || e.payment_method) !== modeFilter) return false;
     }
+    if (type === 'expense' && cashflowFilter && e.cashflow_pool !== cashflowFilter) return false;
     return true;
   };
   const projectDateModeFiltered = entries.filter(matchesFilters);
@@ -992,6 +1027,9 @@ function CategoryDrilldownView({ label, entries, type, onBack, canDelete, onDele
           <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setModeFilter('')} data-testid="category-drilldown-mode-clear">
             <X className="h-3 w-3 mr-1" /> Clear
           </Button>
+        )}
+        {type === 'expense' && (
+          <CashflowFilterSelect value={cashflowFilter} onChange={setCashflowFilter} testId="category-drilldown-cashflow-filter" />
         )}
       </div>
       <DrilldownView
