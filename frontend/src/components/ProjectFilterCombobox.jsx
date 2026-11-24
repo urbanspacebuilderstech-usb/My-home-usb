@@ -14,7 +14,10 @@
  * Props:
  *   value             string  — current selected id (`'all'` for no filter)
  *   onChange          fn(id)  — receives the new id
- *   options           Array<{ id, name, ...anything }>
+ *   options           Array<{ id, name, badge?, searchText?, ...anything }>
+ *                               badge — small count shown right of the name
+ *                               searchText — what the search matches
+ *                               (default: name + id)
  *   allLabel          string  — label for the "All" entry (default: 'All Projects')
  *   placeholder       string  — placeholder text before a project is chosen
  *   noun              string  — what is being picked, for the search box and
@@ -59,7 +62,7 @@ export default function ProjectFilterCombobox({
     const q = search.trim().toLowerCase();
     if (!q) return options;
     return options.filter(o => {
-      const hay = `${o.name || ''} ${o.id || ''}`.toLowerCase();
+      const hay = (o.searchText ?? `${o.name || ''} ${o.id || ''}`).toLowerCase();
       return hay.includes(q);
     });
   }, [options, search]);
@@ -113,6 +116,9 @@ export default function ProjectFilterCombobox({
               >
                 <Check className={`h-3.5 w-3.5 shrink-0 ${value === p.id ? 'text-amber-700' : 'invisible'}`} />
                 <span className="flex-1 truncate">{p.name}</span>
+                {p.badge > 0 && (
+                  <span className="shrink-0 rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700" data-testid={`${testId}-badge-${p.id}`}>{p.badge}</span>
+                )}
               </button>
             ))}
           </div>

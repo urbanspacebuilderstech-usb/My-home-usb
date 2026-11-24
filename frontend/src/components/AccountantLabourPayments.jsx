@@ -18,10 +18,8 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
-// The queue shows contractors by name, and one contractor can sit in both
-// db.contractors and db.labour_contractors under different ids, so the vendor
-// filter goes by name: picking a vendor lists every row showing that name.
-const vendorKey = (it) => (it.contractor_name || '').trim().toLowerCase();
+const nameKey = (name) => (name || '').trim().toLowerCase();
+const billsFirst = (a, b) => (b.badge > 0) - (a.badge > 0) || a.name.localeCompare(b.name);
 
 // `pendingOnly` hides the Released / All tabs (Accounts > Approvals > Labour Work Order).
 export default function AccountantLabourPayments({ pendingOnly = false }) {
@@ -29,6 +27,7 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
   const [vendorFilter, setVendorFilter] = useState('all');
   const [projectFilter, setProjectFilter] = useState('all');
   const [items, setItems] = useState([]);
+  const [contractors, setContractors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
 
@@ -89,11 +88,32 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
 
   useEffect(() => { fetchItems(); /* eslint-disable-next-line */ }, [tab]);
 
-  // Nov 24 2026 — vendor + project filters. Each dropdown lists only what
-  // exists under the other one, so every pick has rows.
+  // Nov 24 2026 — the vendor dropdown lists every labour contractor (Planning →
+  // Labour Contractors), not just those with a bill in this queue.
+  useEffect(() => {
+    axios.get(`${API}/labour-contractors`)
+      .then(r => setContractors(r.data || []))
+      .catch(() => setContractors([]));
+  }, []);
+
+  // Which vendor a row belongs to. Work orders can hold an id from the older
+  // db.contractors, so a row whose id isn't in the master goes by name; a
+  // contractor not in the master at all (e.g. deleted) is keyed by name.
+  const vendorOf = useMemo(() => {
+    const ids = new Set(contractors.map(c => c.contractor_id));
+    const byName = new Map();
+    for (const c of contractors) {
+      const key = nameKey(c.name);
+      if (key && !byName.has(key)) byName.set(key, c.contractor_id);
+    }
+    return (it) => (ids.has(it.contractor_id)
+      ? it.contractor_id
+      : byName.get(nameKey(it.contractor_name)) || nameKey(it.contractor_name));
+  }, [contractors]);
+
   const vendorItems = useMemo(
-    () => (vendorFilter === 'all' ? items : items.filter(it => vendorKey(it) === vendorFilter)),
-    [items, vendorFilter],
+    () => (vendorFilter === 'all' ? items : items.filter(it => vendorOf(it) === vendorFilter)),
+    [items, vendorFilter, vendorOf],
   );
   const projectItems = useMemo(
     () => (projectFilter === 'all' ? items : items.filter(it => it.project_id === projectFilter)),
@@ -104,30 +124,55 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
     [vendorItems, projectFilter],
   );
 
+  // Both lists stay complete whatever the other dropdown says. `badge` is the
+  // number of bills an entry has under the other one; those entries come first.
   const vendorOptions = useMemo(() => {
-    const seen = new Map();
-    for (const it of projectItems) {
-      const key = vendorKey(it);
-      if (key && !seen.has(key)) seen.set(key, it.contractor_name.trim());
+    const sameName = new Map();
+    for (const c of contractors) sameName.set(nameKey(c.name), (sameName.get(nameKey(c.name)) || 0) + 1);
+    const opts = new Map();
+    for (const c of contractors) {
+      if (!c.contractor_id) continue;
+      const name = (c.name || '').trim() || '—';
+      // Two contractors with one name: tell them apart by phone / work type.
+      const extra = sameName.get(nameKey(c.name)) > 1 && (c.phone || (c.work_types || [])[0]);
+      const label = extra ? `${name} · ${extra}` : name;
+      opts.set(c.contractor_id, { id: c.contractor_id, name: label, searchText: label, badge: 0 });
     }
-    return Array.from(seen.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [projectItems]);
-  const projectOptions = useMemo(() => {
-    const seen = new Map();
-    for (const it of vendorItems) {
-      if (it.project_id && !seen.has(it.project_id)) {
-        seen.set(it.project_id, it.project_name || '—');
+    for (const it of items) {
+      const id = vendorOf(it);
+      if (id && !opts.has(id)) {
+        const name = it.contractor_name.trim();
+        opts.set(id, { id, name, searchText: name, badge: 0 });
       }
     }
-    return Array.from(seen.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [vendorItems]);
+    for (const it of projectItems) {
+      const o = opts.get(vendorOf(it));
+      if (o) o.badge += 1;
+    }
+    return Array.from(opts.values()).sort(billsFirst);
+  }, [contractors, items, projectItems, vendorOf]);
+  const projectOptions = useMemo(() => {
+    const opts = new Map();
+    for (const it of items) {
+      if (it.project_id && !opts.has(it.project_id)) {
+        opts.set(it.project_id, { id: it.project_id, name: it.project_name || '—', badge: 0 });
+      }
+    }
+    for (const it of vendorItems) {
+      const o = opts.get(it.project_id);
+      if (o) o.badge += 1;
+    }
+    return Array.from(opts.values()).sort(billsFirst);
+  }, [items, vendorItems]);
 
-  // Drop a filter whose rows are gone after a release or a tab change: the
-  // vendor if they have none left, else the project if the vendor has none there.
+  // Reset a filter whose entry is gone from its list, after a release, a tab
+  // change or the contractor list arriving.
+  const vendorPick = vendorOptions.find(v => v.id === vendorFilter);
+  const projectPick = projectOptions.find(p => p.id === projectFilter);
   useEffect(() => {
-    if (vendorFilter !== 'all' && vendorItems.length === 0) setVendorFilter('all');
-    else if (projectFilter !== 'all' && visibleItems.length === 0) setProjectFilter('all');
-  }, [vendorFilter, projectFilter, vendorItems, visibleItems]);
+    if (vendorFilter !== 'all' && !vendorPick) setVendorFilter('all');
+    if (projectFilter !== 'all' && !projectPick) setProjectFilter('all');
+  }, [vendorFilter, vendorPick, projectFilter, projectPick]);
 
   // Shared by the desktop table and the phone cards.
   const statusBadge = (r) => (r.status === 'approved' ? (
@@ -209,7 +254,7 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
             value={vendorFilter}
             onChange={setVendorFilter}
             options={vendorOptions}
-            allLabel={`All Vendors (${projectItems.length})`}
+            allLabel={`All Vendors (${vendorOptions.length})`}
             placeholder="All Vendors"
             noun="vendor"
             testId="alp-vendor-filter"
@@ -218,7 +263,7 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
             value={projectFilter}
             onChange={setProjectFilter}
             options={projectOptions}
-            allLabel={`All Projects (${vendorItems.length})`}
+            allLabel={`All Projects (${projectOptions.length})`}
             testId="alp-project-filter"
           />
         </div>
@@ -233,7 +278,7 @@ export default function AccountantLabourPayments({ pendingOnly = false }) {
         </CardHeader>
         <CardContent className="p-0">
           {loading ? <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
-          : visibleItems.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No {tab === 'pending' ? 'pending' : tab === 'released' ? 'released' : ''} payments</p>
+          : visibleItems.length === 0 ? <p className="text-center text-xs text-gray-400 py-10">No {tab === 'pending' ? 'pending' : tab === 'released' ? 'released' : ''} payments{vendorPick ? ` for ${vendorPick.name}` : ''}{projectPick ? ` in ${projectPick.name}` : ''}</p>
           : (
             <>
             {/* Nov 3 2026 — phones and tablets get one card per bill; the
