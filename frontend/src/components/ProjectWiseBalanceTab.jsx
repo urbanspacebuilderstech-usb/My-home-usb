@@ -17,6 +17,16 @@ const COLUMNS = [
   { key: 'funds_in_hand', label: 'Funds in Hand', cls: '', accent: '', title: 'Client money left after spending: Income received − Expense, all-time incl. Carry Forward' },
 ];
 
+// Nov 27 2026 — how the Grand Total has come in, by payment mode. The four add
+// up to the Grand Total, so their percentages add up to 100%.
+const PAYMENT_COLUMNS = [
+  { key: 'online_income', label: 'Online', cls: 'text-sky-700', title: 'Client income received through HDFC Current or HDFC Savings' },
+  { key: 'offline_income', label: 'Offline', cls: 'text-emerald-700', title: 'Client income received as Cash, Cheque or Cash D/T' },
+  { key: 'other_income', label: 'Other', cls: 'text-gray-600', title: 'Carry Forward opening balance and income in another mode (suspense, mixed, miscellaneous)' },
+  { key: 'receivable', label: 'Balance', cls: 'text-amber-700', title: 'Not received yet: same as Balance Receivable' },
+];
+const pctOf = (v, total) => (total > 0 ? `${(Math.round((v / total) * 1000) / 10).toLocaleString('en-IN')}%` : '—');
+
 /**
  * Oct 15 2026 — Finance Board > Project Wise > Balance. One row per project,
  * all-time: what the client still owes, what we still owe vendors and
@@ -55,6 +65,10 @@ export default function ProjectWiseBalanceTab({ Amount = PlainAmount }) {
             project_id: p.project_id,
             project_name: (p.project_name || '').replace(/\s+/g, ' ').trim(),
             scope_value: p.scope_value || 0,
+            grand_total: p.grand_total || 0,
+            online_income: p.online_income || 0,
+            offline_income: p.offline_income || 0,
+            other_income: p.other_income || 0,
             receivable: round2((p.grand_total || 0) - (p.income || 0)),
             material_payable: pay.material_payable || 0,
             labour_payable: pay.labour_payable || 0,
@@ -77,7 +91,7 @@ export default function ProjectWiseBalanceTab({ Amount = PlainAmount }) {
   const normalize = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
   const q = normalize(search);
   const filtered = q ? rows.filter(r => normalize(r.project_name).includes(q)) : rows;
-  const totals = COLUMNS.reduce((acc, c) => {
+  const totals = [...COLUMNS, ...PAYMENT_COLUMNS, { key: 'grand_total' }].reduce((acc, c) => {
     acc[c.key] = round2(filtered.reduce((s, r) => s + (r[c.key] || 0), 0));
     return acc;
   }, {});
@@ -126,31 +140,43 @@ export default function ProjectWiseBalanceTab({ Amount = PlainAmount }) {
       )}
       <Card>
         <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-sm" data-testid="pw-balance-table">
+          <table className="w-full text-xs" data-testid="pw-balance-table">
             <thead className="bg-gray-50 border-y">
               <tr>
-                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">S.No</th>
-                <th className="px-3 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase">Project</th>
+                <th rowSpan={2} className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase align-bottom">S.No</th>
+                <th rowSpan={2} className="px-2 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase align-bottom">Project</th>
                 {COLUMNS.map(c => (
-                  <th key={c.key} title={c.title} className="px-3 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase cursor-help whitespace-nowrap">{c.label}</th>
+                  <th key={c.key} rowSpan={2} title={c.title} className="px-2 py-2 text-right text-[10px] font-semibold text-gray-500 uppercase cursor-help align-bottom">{c.label}</th>
+                ))}
+                <th colSpan={PAYMENT_COLUMNS.length} className="px-2 py-1.5 text-center text-[10px] font-semibold uppercase bg-sky-50 text-sky-700 border-l border-sky-100" title="Share of the Grand Total (Scope + Additions − Deductions)">Payment · % of Grand Total</th>
+              </tr>
+              <tr>
+                {PAYMENT_COLUMNS.map((c, n) => (
+                  <th key={c.key} title={c.title} className={`px-2 py-1.5 text-center text-[10px] font-semibold text-gray-500 uppercase cursor-help bg-sky-50/60 ${n === 0 ? 'border-l border-sky-100' : ''}`}>{c.label}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y">
               {filtered.length === 0 ? (
-                <tr><td colSpan={COLUMNS.length + 2} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No projects found'}</td></tr>
+                <tr><td colSpan={COLUMNS.length + PAYMENT_COLUMNS.length + 2} className="px-3 py-8 text-center text-gray-400 text-sm">{loading ? 'Loading…' : 'No projects found'}</td></tr>
               ) : filtered.map((r, idx) => (
                 <tr key={r.project_id} className="hover:bg-gray-50" data-testid={`pw-balance-row-${idx}`}>
-                  <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
-                  <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
+                  <td className="px-2 py-2 text-gray-500">{idx + 1}</td>
+                  <td className="px-2 py-2 font-medium text-gray-900">{r.project_name}</td>
                   {COLUMNS.map(c => {
                     const cls = c.key === 'funds_in_hand' ? fundsCls(r[c.key]) : c.cls;
                     return (
-                      <td key={c.key} className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${cls}`}>
+                      <td key={c.key} className={`px-2 py-2 text-right font-semibold whitespace-nowrap ${cls}`}>
                         <Amount value={r[c.key]} className={cls} />
                       </td>
                     );
                   })}
+                  {PAYMENT_COLUMNS.map((c, n) => (
+                    <td key={c.key} className={`px-2 py-2 text-center whitespace-nowrap bg-sky-50/30 ${n === 0 ? 'border-l border-sky-100' : ''}`} data-testid={`pw-balance-${c.key}`}>
+                      <Amount value={r[c.key]} className={`text-xs ${c.cls}`} />
+                      <span className={`block text-[11px] font-bold ${c.cls}`}>{pctOf(r[c.key], r.grand_total)}</span>
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -161,11 +187,17 @@ export default function ProjectWiseBalanceTab({ Amount = PlainAmount }) {
                   {COLUMNS.map(c => {
                     const cls = c.key === 'funds_in_hand' ? fundsCls(totals[c.key]) : c.cls;
                     return (
-                      <td key={c.key} className={`px-3 py-2 text-right whitespace-nowrap ${cls}`}>
+                      <td key={c.key} className={`px-2 py-2 text-right whitespace-nowrap ${cls}`}>
                         <Amount value={totals[c.key]} className={cls} />
                       </td>
                     );
                   })}
+                  {PAYMENT_COLUMNS.map((c, n) => (
+                    <td key={c.key} className={`px-2 py-2 text-center whitespace-nowrap ${n === 0 ? 'border-l border-sky-100' : ''}`}>
+                      <Amount value={totals[c.key]} className={`text-xs ${c.cls}`} />
+                      <span className={`block text-[11px] ${c.cls}`}>{pctOf(totals[c.key], totals.grand_total)}</span>
+                    </td>
+                  ))}
                 </tr>
               </tfoot>
             )}

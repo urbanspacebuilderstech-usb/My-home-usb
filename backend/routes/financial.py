@@ -219,6 +219,23 @@ def classify_payment_mode(mode) -> str:
     return "miscellaneous"
 
 
+# Nov 27 2026 - Project Wise > Balance splits client income by channel:
+# online = HDFC Current + HDFC Savings, offline = Cash + Cheque + Cash D/T.
+# Anything else (suspense, petty cash, mixed, miscellaneous) is "other".
+_ONLINE_MODES = {"current_account", "savings_account"}
+_OFFLINE_MODES = {"cash", "cheque", "direct_transfer"}
+
+
+def income_channel(mode) -> str:
+    """project_wise key an income row's amount belongs to."""
+    bucket = classify_payment_mode(mode)
+    if bucket in _ONLINE_MODES:
+        return "online_income"
+    if bucket in _OFFLINE_MODES:
+        return "offline_income"
+    return "other_income"
+
+
 # The five tiles the Suspense A/c page renders, plus an explicit home for
 # anything that genuinely has no mode. `classify_payment_mode` answers "cash"
 # for a null, which is right for a payment (something was paid, somehow) but
@@ -7193,6 +7210,10 @@ async def get_cashbook_filtered(
         "direct_expense": 0,
         "indirect_expense": 0,
         "cf_indirect_expense": 0,
+        # Nov 27 2026 - Project Wise > Balance: client income by how it came in.
+        "online_income": 0,
+        "offline_income": 0,
+        "other_income": 0,
         # Nov 23 2026 - Project Wise > Project Cost Control (Grand Total / SQ.FT).
         "buildup_area": p.get("buildup_area"),
     } for p in projects_list}
@@ -7200,6 +7221,7 @@ async def get_cashbook_filtered(
         pid = i.get("project_id")
         if pid in real_pid_set:
             project_wise_map[pid]["income"] += i.get("amount", 0) or 0
+            project_wise_map[pid][income_channel(i.get("payment_mode"))] += i.get("amount", 0) or 0
     for e in all_expenses:
         pid = e.get("project_id")
         if pid in real_pid_set:
@@ -7238,8 +7260,12 @@ async def get_cashbook_filtered(
             pw["income"] = pw["income"] + pw["cf_income"]
             pw["expense"] = pw["expense"] + pw["cf_expense"]
             pw["indirect_expense"] += pw["cf_indirect_expense"]
+            # A carry-forward opening balance has no payment mode.
+            pw["other_income"] += pw["cf_income"]
             pw["direct_expense"] += pw["cf_expense"] - pw["cf_indirect_expense"]
         pw["direct_expense"] = round(pw["direct_expense"], 2)
+        for _k in ("online_income", "offline_income", "other_income"):
+            pw[_k] = round(pw[_k], 2)
         pw["indirect_expense"] = round(pw["indirect_expense"], 2)
         # Aug 25 2026 — Round to paise. The project page's Financial
         # Performance card rounds the identical sum the same way
