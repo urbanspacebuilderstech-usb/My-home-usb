@@ -4912,24 +4912,21 @@ export default function ProjectDetail() {
                       { label: 'Balance', hint: 'Not received yet', v: receivableBalance, bar: 'bg-amber-400', text: 'text-amber-700', dot: 'bg-amber-400' },
                     ].map(p => ({ ...p, pct: (p.v / grandTotal) * 100 }));
                     return (
-                      <div className="mt-2 rounded-md bg-white/80 border border-emerald-100 p-2.5" data-testid="fin-perf-income-split">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                          <p className="text-[10px] text-gray-500 uppercase">Income by Payment Mode</p>
-                          <p className="text-[9px] text-gray-400">% of Grand Total</p>
+                      <div className="mt-2 rounded-md bg-white/80 border border-emerald-100 px-2.5 py-1.5" data-testid="fin-perf-income-split">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] text-gray-500 uppercase whitespace-nowrap" title="Share of the Grand Total">Income by Payment Mode</p>
+                          <div className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100" role="img" aria-label={parts.map(p => `${p.label} ${p.pct.toFixed(1)}%`).join(', ')}>
+                            {parts.map(p => p.pct > 0 && <div key={p.label} className={p.bar} style={{ width: `${Math.min(100, p.pct)}%` }} title={`${p.label}: ${p.pct.toFixed(1)}%`} />)}
+                          </div>
                         </div>
-                        <div className="flex h-2 w-full overflow-hidden rounded-full bg-gray-100" role="img" aria-label={parts.map(p => `${p.label} ${p.pct.toFixed(1)}%`).join(', ')}>
-                          {parts.map(p => p.pct > 0 && <div key={p.label} className={p.bar} style={{ width: `${Math.min(100, p.pct)}%` }} title={`${p.label}: ${p.pct.toFixed(1)}%`} />)}
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-0.5 mt-1">
                           {parts.map(p => (
-                            <div key={p.label} className="min-w-0" title={p.hint}>
-                              <p className="flex items-center gap-1.5 text-[10px] text-gray-500">
-                                <span className={`h-2 w-2 rounded-full shrink-0 ${p.dot}`} />{p.label}
-                                <span className={`ml-auto font-bold ${p.text}`}>{p.pct.toFixed(1)}%</span>
-                              </p>
-                              <p className={`text-xs sm:text-sm font-bold break-words ${p.text}`}>{fmtINR(p.v)}</p>
-                              <p className="text-[9px] text-gray-400 truncate">{p.hint}</p>
-                            </div>
+                            <p key={p.label} className="flex items-center gap-1 text-[10px] min-w-0" title={`${p.label}: ${p.hint}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${p.dot}`} />
+                              <span className="text-gray-500">{p.label}</span>
+                              <span className={`ml-auto font-bold whitespace-nowrap ${p.text}`}>{fmtINR(p.v)}</span>
+                              <span className={`font-semibold opacity-80 ${p.text}`}>{p.pct.toFixed(1)}%</span>
+                            </p>
                           ))}
                         </div>
                       </div>
