@@ -4882,28 +4882,6 @@ export default function ProjectDetail() {
                       <p className="text-[10px] text-gray-500 uppercase">Total Income</p>
                       <p className="text-sm sm:text-base break-words font-bold text-emerald-700 mt-0.5">{fmtINR(totalIncome)}</p>
                       <p className="text-[9px] text-emerald-600 mt-0.5">{collectionPct.toFixed(1)}% of value</p>
-                      {/* Nov 27 2026 — how the Grand Total has come in, same split as
-                          Finance Board > Project Wise > Balance: Online (HDFC Current
-                          + Savings), Offline (Cash + Cheque + Cash D/T), Other
-                          (carry-forward and other modes), Balance still to receive. */}
-                      {summary.income_by_channel && (
-                        <div className="mt-1.5 pt-1.5 border-t border-emerald-100 space-y-0.5" data-testid="fin-perf-income-split">
-                          {[
-                            ['Online', summary.income_by_channel.online, 'text-sky-700', 'HDFC Current + HDFC Savings'],
-                            ['Offline', summary.income_by_channel.offline, 'text-emerald-700', 'Cash + Cheque + Cash D/T'],
-                            ['Other', summary.income_by_channel.other, 'text-gray-600', 'Carry Forward and other modes'],
-                            ['Balance', receivableBalance, 'text-amber-700', 'Not received yet'],
-                          ].map(([label, v, cls, hint]) => (
-                            <div key={label} className="flex items-baseline justify-between gap-1 text-[10px] leading-tight" title={hint}>
-                              <span className="text-gray-500">{label}</span>
-                              <span className={`font-semibold whitespace-nowrap ${cls}`}>
-                                {fmtINR(v)}
-                                <span className="ml-1 font-normal opacity-80">{grandTotal > 0 ? `${((v || 0) / grandTotal * 100).toFixed(1)}%` : '—'}</span>
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                     <div className="rounded-md bg-white/80 border border-rose-200 p-2.5 min-w-0">
                       <p className="text-[10px] text-gray-500 uppercase">Total Expense</p>
@@ -4922,6 +4900,41 @@ export default function ProjectDetail() {
                       <p className="text-[9px] opacity-90 mt-0.5">Yet to receive</p>
                     </div>
                   </div>
+                  {/* Nov 27 2026 — how the Grand Total has come in, same split as
+                      Finance Board > Project Wise > Balance: Online (HDFC Current
+                      + Savings), Offline (Cash + Cheque + Cash D/T), Other
+                      (carry-forward and other modes), Balance still to receive. */}
+                  {summary.income_by_channel && grandTotal > 0 && (() => {
+                    const parts = [
+                      { label: 'Online', hint: 'HDFC Current + Savings', v: summary.income_by_channel.online || 0, bar: 'bg-sky-500', text: 'text-sky-700', dot: 'bg-sky-500' },
+                      { label: 'Offline', hint: 'Cash + Cheque + Cash D/T', v: summary.income_by_channel.offline || 0, bar: 'bg-emerald-500', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+                      { label: 'Other', hint: 'Carry Forward + other modes', v: summary.income_by_channel.other || 0, bar: 'bg-slate-400', text: 'text-slate-600', dot: 'bg-slate-400' },
+                      { label: 'Balance', hint: 'Not received yet', v: receivableBalance, bar: 'bg-amber-400', text: 'text-amber-700', dot: 'bg-amber-400' },
+                    ].map(p => ({ ...p, pct: (p.v / grandTotal) * 100 }));
+                    return (
+                      <div className="mt-2 rounded-md bg-white/80 border border-emerald-100 p-2.5" data-testid="fin-perf-income-split">
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <p className="text-[10px] text-gray-500 uppercase">Income by Payment Mode</p>
+                          <p className="text-[9px] text-gray-400">% of Grand Total</p>
+                        </div>
+                        <div className="flex h-2 w-full overflow-hidden rounded-full bg-gray-100" role="img" aria-label={parts.map(p => `${p.label} ${p.pct.toFixed(1)}%`).join(', ')}>
+                          {parts.map(p => p.pct > 0 && <div key={p.label} className={p.bar} style={{ width: `${Math.min(100, p.pct)}%` }} title={`${p.label}: ${p.pct.toFixed(1)}%`} />)}
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+                          {parts.map(p => (
+                            <div key={p.label} className="min-w-0" title={p.hint}>
+                              <p className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                                <span className={`h-2 w-2 rounded-full shrink-0 ${p.dot}`} />{p.label}
+                                <span className={`ml-auto font-bold ${p.text}`}>{p.pct.toFixed(1)}%</span>
+                              </p>
+                              <p className={`text-xs sm:text-sm font-bold break-words ${p.text}`}>{fmtINR(p.v)}</p>
+                              <p className="text-[9px] text-gray-400 truncate">{p.hint}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             </div>
