@@ -4882,6 +4882,28 @@ export default function ProjectDetail() {
                       <p className="text-[10px] text-gray-500 uppercase">Total Income</p>
                       <p className="text-sm sm:text-base break-words font-bold text-emerald-700 mt-0.5">{fmtINR(totalIncome)}</p>
                       <p className="text-[9px] text-emerald-600 mt-0.5">{collectionPct.toFixed(1)}% of value</p>
+                      {/* Nov 27 2026 — how the Grand Total has come in, same split as
+                          Finance Board > Project Wise > Balance: Online (HDFC Current
+                          + Savings), Offline (Cash + Cheque + Cash D/T), Other
+                          (carry-forward and other modes), Balance still to receive. */}
+                      {summary.income_by_channel && (
+                        <div className="mt-1.5 pt-1.5 border-t border-emerald-100 space-y-0.5" data-testid="fin-perf-income-split">
+                          {[
+                            ['Online', summary.income_by_channel.online, 'text-sky-700', 'HDFC Current + HDFC Savings'],
+                            ['Offline', summary.income_by_channel.offline, 'text-emerald-700', 'Cash + Cheque + Cash D/T'],
+                            ['Other', summary.income_by_channel.other, 'text-gray-600', 'Carry Forward and other modes'],
+                            ['Balance', receivableBalance, 'text-amber-700', 'Not received yet'],
+                          ].map(([label, v, cls, hint]) => (
+                            <div key={label} className="flex items-baseline justify-between gap-1 text-[10px] leading-tight" title={hint}>
+                              <span className="text-gray-500">{label}</span>
+                              <span className={`font-semibold whitespace-nowrap ${cls}`}>
+                                {fmtINR(v)}
+                                <span className="ml-1 font-normal opacity-80">{grandTotal > 0 ? `${((v || 0) / grandTotal * 100).toFixed(1)}%` : '—'}</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="rounded-md bg-white/80 border border-rose-200 p-2.5 min-w-0">
                       <p className="text-[10px] text-gray-500 uppercase">Total Expense</p>

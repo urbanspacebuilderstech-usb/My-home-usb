@@ -5084,6 +5084,13 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     # dust (see expense_engine.compute_project_expense_total).
     expense_total_with_cf = round(expense_total + cf_expense, 2)
     income_total_with_cf = round(income_total + cf_income, 2)
+    # Nov 27 2026 - Financial Performance > Total Income split by how it came
+    # in, same rule as Project Wise > Balance (income_channel). Carry-forward
+    # income has no mode, so it is "other". Adds up to income_total.
+    income_by_channel = {"online": 0.0, "offline": 0.0, "other": float(cf_income or 0)}
+    for e in approved_income_entries:
+        income_by_channel[income_channel(e.get("payment_mode")).replace("_income", "")] += e.get("amount", 0) or 0
+    income_by_channel = {k: round(v, 2) for k, v in income_by_channel.items()}
 
     return {
         "project": project,
@@ -5116,6 +5123,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
             "income_total_live": income_total,
             "cf_income": cf_income,
             "income_by_mode": income_by_mode,
+            "income_by_channel": income_by_channel,
             "deductions_total": deductions_total,
             "balance": balance,
             # Feb 20 2026 — authoritative Total Expense used by the project
